@@ -32,19 +32,7 @@ func renderConfigHead(width int) string {
 	right := sDim.Render("profile: ") + sFg.Render("default") + "   " +
 		sDim.Render("last-applied: ") + sFg1.Render("14:12:08") + "   " +
 		sDim.Render("dirty: ") + sWarn.Render("● 2 unsaved")
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right) - 4
-	if gap < 1 {
-		gap = 1
-	}
-	row := fillBg(left+strings.Repeat(" ", gap)+right, bg)
-	return lipgloss.NewStyle().
-		Background(bg).
-		Width(width).
-		Padding(0, 2).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(faint).
-		BorderBackground(bg).
-		Render(row)
+	return pageHeader(width, left, right)
 }
 
 func paneCfgDaemon(width, height int, selected int) string {

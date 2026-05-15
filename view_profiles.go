@@ -30,15 +30,7 @@ func renderProfilesHead(width int) string {
 		kv("running", fmt.Sprintf("%d/%d", running, len(profiles)), "ok", 22),
 		kv("state dir", "~/.multica/profiles", "dim", 40),
 	}
-	row := fillBg(strings.Join(parts, "   "), bg)
-	return lipgloss.NewStyle().
-		Background(bg).
-		Width(width).
-		Padding(0, 2).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(faint).
-		BorderBackground(bg).
-		Render(row)
+	return pageHeader(width, strings.Join(parts, "   "), "")
 }
 
 func renderProfilesGrid(width, height int, selected int) string {
@@ -124,11 +116,11 @@ func renderProfileCard(p Profile, width, height int, selected, isDefault bool) s
 			kb("x") + " " + sFg1.Render("delete")
 	}
 
-	body := headRow + "\n" +
-		sFaint.Render(strings.Repeat("─", inner)) + "\n" +
-		strings.Join(kvs, "\n") + "\n" +
-		hr("actions", inner) + "\n" +
-		actions
+	body := kvPane(inner, []kvSection{
+		{"", []string{headRow}},
+		{"", kvs},
+		{"actions", []string{actions}},
+	})
 
 	accentB := selected
 	p2 := pane(p.Name, "", body, width, height, accentB)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -10,6 +11,116 @@ import (
 // ─── Generic helpers ────────────────────────────────────────────────────────
 
 func padR(s string, w int) string { return lipgloss.NewStyle().Width(w).Render(s) }
+
+// truncate clips s to a visible width of w, appending "…" if clipped.
+// ANSI-aware: escape sequences are copied verbatim and don't count toward
+// width. A trailing "\x1b[0m" closes any style left open mid-render so the
+// next cell on the line doesn't inherit a stray fg/bg.
+//
+// Note: a swap to `ansi.Truncate` was attempted but emits redundant
+// open/close SGR spans around the truncation point. Visible output is
+// identical, but byte-equal golden snapshots break; deferred to Phase B.
+func truncate(s string, w int) string {
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	if w < 2 {
+		return ""
+	}
+	var b strings.Builder
+	visible := 0
+	target := w - 1 // room for "…"
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			end := i + 1
+			if end < len(s) && s[end] == '[' {
+				end++
+				for end < len(s) && (s[end] < 0x40 || s[end] > 0x7e) {
+					end++
+				}
+				if end < len(s) {
+					end++
+				}
+			}
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		rW := lipgloss.Width(string(r))
+		if visible+rW > target {
+			break
+		}
+		b.WriteString(s[i : i+size])
+		visible += rW
+		i += size
+	}
+	b.WriteString("…\x1b[0m")
+	return b.String()
+}
+
+// wrap word-wraps s to lines of at most `width` visible cells. Splits on ASCII
+// whitespace via strings.Fields, so runs of whitespace collapse to single
+// spaces — matches the design's tight message bodies.
+//
+// Note: a swap to `ansi.Wrap` was attempted but its handling of multi-space
+// inputs produces byte-different output; deferred to Phase B.
+func wrap(s string, width int) []string {
+	if width < 1 {
+		return []string{s}
+	}
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	var cur string
+	for _, w := range words {
+		if cur == "" {
+			cur = w
+			continue
+		}
+		if lipgloss.Width(cur+" "+w) > width {
+			lines = append(lines, cur)
+			cur = w
+		} else {
+			cur += " " + w
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
+// countBar renders "label  [██░░] N" — a fixed-width label, an ANSI block-
+// progress bar, and a right-aligned count colored by `tone`.
+func countBar(label string, n, total int, tone string, width int) string {
+	labelW := 12
+	numW := 6
+	barW := width - labelW - numW - 2
+	if barW < 4 {
+		barW = 4
+	}
+	var nStyle lipgloss.Style
+	switch tone {
+	case "dim":
+		nStyle = sDim
+	case "info":
+		nStyle = sInfo
+	case "ok":
+		nStyle = sOk
+	case "amber":
+		nStyle = sAccent
+	case "err":
+		nStyle = sErr
+	default:
+		nStyle = sFg
+	}
+	return sFg1.Render(padR(label, labelW)) + " " +
+		bar(float64(n)/float64(total), barW) + " " +
+		nStyle.Render(fmt.Sprintf("%*d", numW, n))
+}
 
 // bgSetSeq returns the ANSI prefix that lipgloss emits for Background(color),
 // e.g. "\x1b[48;2;25;20;15m" in truecolor mode, "\x1b[40m" in 16-color mode,
@@ -302,6 +413,63 @@ func buildTopBorder(b lipgloss.Border, title, hint string, width int, accentBord
 	return bs.Render(b.TopLeft+strings.Repeat(b.Top, left)) +
 		gap + label + gap +
 		bs.Render(strings.Repeat(b.Top, right)+b.TopRight)
+}
+
+// chip renders a small padded label pill. Active chips paint with accent
+// fg on bg2; inactive chips use dim fg on bg1.
+func chip(label string, active bool) string {
+	st := lipgloss.NewStyle().Padding(0, 1)
+	if active {
+		st = st.Foreground(accent).Background(bg2)
+	} else {
+		st = st.Foreground(dim).Background(bg1)
+	}
+	return st.Render(label)
+}
+
+type chipSpec struct {
+	label  string
+	active bool
+}
+
+// chipBar renders `<label>  <chip1> <chip2> …`. The double space between the
+// dim label and the first chip matches both prior local-closure callsites.
+func chipBar(label string, items ...chipSpec) string {
+	var b strings.Builder
+	b.WriteString(sDim.Render(label))
+	b.WriteString("  ")
+	for i, c := range items {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(chip(c.label, c.active))
+	}
+	return b.String()
+}
+
+// pageHeader renders a tab's top filter/breadcrumb strip: a single row with
+// canvas bg, padding (0,2), and a faint bottom border. When `right` is empty,
+// `left` is rendered as-is; otherwise the two are separated by stretch space
+// so `right` hugs the right edge.
+func pageHeader(width int, left, right string) string {
+	var row string
+	if right == "" {
+		row = fillBg(left, bg)
+	} else {
+		gap := width - lipgloss.Width(left) - lipgloss.Width(right) - 4
+		if gap < 1 {
+			gap = 1
+		}
+		row = fillBg(left+strings.Repeat(" ", gap)+right, bg)
+	}
+	return lipgloss.NewStyle().
+		Background(bg).
+		Width(width).
+		Padding(0, 2).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(faint).
+		BorderBackground(bg).
+		Render(row)
 }
 
 // ─── Top chrome ─────────────────────────────────────────────────────────────

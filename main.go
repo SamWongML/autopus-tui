@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -224,8 +225,16 @@ func main() {
 		case "256":
 			lipgloss.SetColorProfile(termenv.ANSI256)
 		}
+		w, h := 160, 48
+		if v, err := strconv.Atoi(os.Getenv("MTOP_DUMP_WIDTH")); err == nil && v > 0 {
+			w = v
+		}
+		if v, err := strconv.Atoi(os.Getenv("MTOP_DUMP_HEIGHT")); err == nil && v > 0 {
+			h = v
+		}
 		for tab := 0; tab < 6; tab++ {
 			m := initialModel()
+			m.width, m.height = w, h
 			m.tab = tab
 			fmt.Println(strings.Repeat("=", 80))
 			fmt.Printf("=== tab %d\n", tab+1)

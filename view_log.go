@@ -2,8 +2,6 @@ package main
 
 import (
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 func renderLog(width, height int) string {
@@ -26,51 +24,21 @@ func renderLog(width, height int) string {
 }
 
 func renderLogFilter(width int) string {
-	chip := func(s string, on bool) string {
-		st := lipgloss.NewStyle().Padding(0, 1)
-		if on {
-			st = st.Foreground(accent).Background(bg2)
-		} else {
-			st = st.Foreground(dim).Background(bg1)
-		}
-		return st.Render(s)
-	}
-	left := sDim.Render("level") + "  " +
-		chip("trace", true) + " " +
-		chip("info", true) + " " +
-		chip("warn", true) + " " +
-		chip("error", true)
+	left := chipBar("level",
+		chipSpec{"trace", true},
+		chipSpec{"info", true},
+		chipSpec{"warn", true},
+		chipSpec{"error", true},
+	)
 	right := sDim.Render("src: ") + sFg.Render("any") +
 		"   " + sDim.Render("follow: ") + sOk.Render("● on")
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right) - 4
-	if gap < 1 {
-		gap = 1
-	}
-	row := fillBg(left+strings.Repeat(" ", gap)+right, bg)
-	return lipgloss.NewStyle().
-		Background(bg).
-		Width(width).
-		Padding(0, 2).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(faint).
-		BorderBackground(bg).
-		Render(row)
+	return pageHeader(width, left, right)
 }
 
 func paneLogTable(width, height int) string {
-	inner := width - 4
 	// Pretend we have a lot of log lines by tripling the sample, like the design.
 	tripled := append(append(append([]LogLine{}, logLines...), logLines...), logLines[:4]...)
-
-	rowsAvail := height - 2 // top + bottom border
-	if rowsAvail > len(tripled) {
-		rowsAvail = len(tripled)
-	}
-	var lines []string
-	for i, l := range tripled[:rowsAvail] {
-		lines = append(lines, logRowText(l, i == 0, inner))
-	}
-	body := strings.Join(lines, "\n")
+	body := logTable(tripled, width, height, logFull)
 	return pane(daemon.Log, "34,182 lines · 12.4 MB · rotating @ 50 MB", body, width, height, false)
 }
 

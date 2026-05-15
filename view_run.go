@@ -151,35 +151,6 @@ func msgTypeTag(t string, w int) string {
 	return sDim.Render(pad)
 }
 
-func wrap(s string, width int) []string {
-	if width < 1 {
-		return []string{s}
-	}
-	// Word-aware wrap that ignores ANSI escapes for measurement.
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{""}
-	}
-	var lines []string
-	var cur string
-	for _, w := range words {
-		if cur == "" {
-			cur = w
-			continue
-		}
-		if lipgloss.Width(cur+" "+w) > width {
-			lines = append(lines, cur)
-			cur = w
-		} else {
-			cur += " " + w
-		}
-	}
-	if cur != "" {
-		lines = append(lines, cur)
-	}
-	return lines
-}
-
 func renderTaskSidebar(width int) string {
 	rows := [][2]string{
 		{"status", "● waiting"},
@@ -194,25 +165,29 @@ func renderTaskSidebar(width int) string {
 		{"cost", "$1.42"},
 		{"branch", "feat/idempotency-keys"},
 	}
-	var lines []string
+	kvs := make([]string, 0, len(rows))
 	for _, r := range rows {
 		tone := ""
 		if r[0] == "status" {
 			tone = "warn"
 		}
-		lines = append(lines, kv(r[0], r[1], tone, width))
+		kvs = append(kvs, kv(r[0], r[1], tone, width))
 	}
-	lines = append(lines, hr("files touched", width))
-	lines = append(lines, fileRow("db/migrate/20260514_add_idempotency_key.rb", "+42", width))
-	lines = append(lines, fileRow("app/models/webhook_event.rb", "+8 −2", width))
-	lines = append(lines, fileRow("spec/models/webhook_event_spec.rb", "+24", width))
-	lines = append(lines, hr("msg type counts", width))
-	lines = append(lines, countBar("thinking", 32, 86, "dim", width))
-	lines = append(lines, countBar("tool_call", 28, 86, "info", width))
-	lines = append(lines, countBar("tool_result", 20, 86, "ok", width))
-	lines = append(lines, countBar("text", 5, 86, "amber", width))
-	lines = append(lines, countBar("error", 1, 86, "err", width))
-	return strings.Join(lines, "\n")
+	return kvPane(width, []kvSection{
+		{"", kvs},
+		{"files touched", []string{
+			fileRow("db/migrate/20260514_add_idempotency_key.rb", "+42", width),
+			fileRow("app/models/webhook_event.rb", "+8 −2", width),
+			fileRow("spec/models/webhook_event_spec.rb", "+24", width),
+		}},
+		{"msg type counts", []string{
+			countBar("thinking", 32, 86, "dim", width),
+			countBar("tool_call", 28, 86, "info", width),
+			countBar("tool_result", 20, 86, "ok", width),
+			countBar("text", 5, 86, "amber", width),
+			countBar("error", 1, 86, "err", width),
+		}},
+	})
 }
 
 func fileRow(path, diff string, width int) string {
@@ -222,33 +197,6 @@ func fileRow(path, diff string, width int) string {
 		path = truncate(path, width-lipgloss.Width(diff)-1)
 	}
 	return sFg1.Render(path) + strings.Repeat(" ", gap) + sOk.Render(diff)
-}
-
-func countBar(label string, n, total int, tone string, width int) string {
-	labelW := 12
-	numW := 6
-	barW := width - labelW - numW - 2
-	if barW < 4 {
-		barW = 4
-	}
-	var nStyle lipgloss.Style
-	switch tone {
-	case "dim":
-		nStyle = sDim
-	case "info":
-		nStyle = sInfo
-	case "ok":
-		nStyle = sOk
-	case "amber":
-		nStyle = sAccent
-	case "err":
-		nStyle = sErr
-	default:
-		nStyle = sFg
-	}
-	return sFg1.Render(padR(label, labelW)) + " " +
-		bar(float64(n)/float64(total), barW) + " " +
-		nStyle.Render(fmt.Sprintf("%*d", numW, n))
 }
 
 func maxInt(a, b int) int {
