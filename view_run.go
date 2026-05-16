@@ -7,9 +7,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func renderRun(width, height int) string {
+// renderRun lays out the Run tab. By default the messages stream gets the full
+// width; when `peek` is true a 38-cell task-detail overlay is joined on the
+// right, sharing the same renderTaskDetail component the Tasks-tab preview
+// uses. The toggle is wired to Space in main.go.
+func renderRun(width, height int, peek bool) string {
 	headH := 3
-	body := runBody(width, height-headH)
+	body := runBody(width, height-headH, peek)
 	return joinV(runHeader(width), body)
 }
 
@@ -43,21 +47,27 @@ func runHeader(width int) string {
 		Render(row)
 }
 
-func runBody(width, height int) string {
-	gap := 2
-	sidebarW := 38
-	if sidebarW > width/3 {
-		sidebarW = width / 3
+func runBody(width, height int, peek bool) string {
+	if !peek {
+		msgsBody := renderMessages(width - 4)
+		return pane("messages · run-messages t-1284 --since 0", "9 of 86 · filter: all", msgsBody, width, height, false)
 	}
-	msgsW := width - sidebarW - gap
+
+	gap := 2
+	peekW := 38
+	if peekW > width/3 {
+		peekW = width / 3
+	}
+	msgsW := width - peekW - gap
 
 	msgsBody := renderMessages(msgsW - 4)
 	messagesPane := pane("messages · run-messages t-1284 --since 0", "9 of 86 · filter: all", msgsBody, msgsW, height, false)
 
-	sidebarBody := renderTaskSidebar(sidebarW - 4)
-	sidebarPane := pane("task", "t-1284", sidebarBody, sidebarW, height, false)
+	t := tasks[0]
+	detailBody := renderTaskDetail(t, "stream", peekW-4, height-2)
+	detailPane := pane("task "+t.ID, "", detailBody, peekW, height, true)
 
-	return joinH(messagesPane, bgPad(gap), sidebarPane)
+	return joinH(messagesPane, bgPad(gap), detailPane)
 }
 
 func renderMessages(width int) string {
@@ -178,77 +188,6 @@ func wrap(s string, width int) []string {
 		lines = append(lines, cur)
 	}
 	return lines
-}
-
-func renderTaskSidebar(width int) string {
-	rows := [][2]string{
-		{"status", "● waiting"},
-		{"runtime", "claude"},
-		{"model", "sonnet-4.6"},
-		{"pid", "18421"},
-		{"started", "14:28:50"},
-		{"elapsed", "3m 12s"},
-		{"messages", "86"},
-		{"tokens in", "124,118"},
-		{"tokens out", "59,902"},
-		{"cost", "$1.42"},
-		{"branch", "feat/idempotency-keys"},
-	}
-	var lines []string
-	for _, r := range rows {
-		tone := ""
-		if r[0] == "status" {
-			tone = "warn"
-		}
-		lines = append(lines, kv(r[0], r[1], tone, width))
-	}
-	lines = append(lines, hr("files touched", width))
-	lines = append(lines, fileRow("db/migrate/20260514_add_idempotency_key.rb", "+42", width))
-	lines = append(lines, fileRow("app/models/webhook_event.rb", "+8 −2", width))
-	lines = append(lines, fileRow("spec/models/webhook_event_spec.rb", "+24", width))
-	lines = append(lines, hr("msg type counts", width))
-	lines = append(lines, countBar("thinking", 32, 86, "dim", width))
-	lines = append(lines, countBar("tool_call", 28, 86, "info", width))
-	lines = append(lines, countBar("tool_result", 20, 86, "ok", width))
-	lines = append(lines, countBar("text", 5, 86, "amber", width))
-	lines = append(lines, countBar("error", 1, 86, "err", width))
-	return strings.Join(lines, "\n")
-}
-
-func fileRow(path, diff string, width int) string {
-	gap := width - lipgloss.Width(path) - lipgloss.Width(diff)
-	if gap < 1 {
-		gap = 1
-		path = truncate(path, width-lipgloss.Width(diff)-1)
-	}
-	return sFg1.Render(path) + strings.Repeat(" ", gap) + sOk.Render(diff)
-}
-
-func countBar(label string, n, total int, tone string, width int) string {
-	labelW := 12
-	numW := 6
-	barW := width - labelW - numW - 2
-	if barW < 4 {
-		barW = 4
-	}
-	var nStyle lipgloss.Style
-	switch tone {
-	case "dim":
-		nStyle = sDim
-	case "info":
-		nStyle = sInfo
-	case "ok":
-		nStyle = sOk
-	case "amber":
-		nStyle = sAccent
-	case "err":
-		nStyle = sErr
-	default:
-		nStyle = sFg
-	}
-	return sFg1.Render(padR(label, labelW)) + " " +
-		bar(float64(n)/float64(total), barW) + " " +
-		nStyle.Render(fmt.Sprintf("%*d", numW, n))
 }
 
 func maxInt(a, b int) int {

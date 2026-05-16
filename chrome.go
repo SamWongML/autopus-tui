@@ -155,6 +155,41 @@ func bgPadV(width, n int) string {
 	return strings.Join(rows, "\n")
 }
 
+// countBar renders one row of "label  ████░░  count" — a labeled utilization
+// bar with the count right-aligned in a fixed width. `tone` selects the count's
+// foreground (dim|info|ok|amber|err). Used by the Log overview pane and the
+// task detail's msg-type counts.
+func countBar(label string, n, total int, tone string, width int) string {
+	labelW := 12
+	numW := 6
+	barW := width - labelW - numW - 2
+	if barW < 4 {
+		barW = 4
+	}
+	var nStyle lipgloss.Style
+	switch tone {
+	case "dim":
+		nStyle = sDim
+	case "info":
+		nStyle = sInfo
+	case "ok":
+		nStyle = sOk
+	case "amber":
+		nStyle = sAccent
+	case "err":
+		nStyle = sErr
+	default:
+		nStyle = sFg
+	}
+	denom := total
+	if denom <= 0 {
+		denom = 1
+	}
+	return sFg1.Render(padR(label, labelW)) + " " +
+		bar(float64(n)/float64(denom), barW) + " " +
+		nStyle.Render(fmt.Sprintf("%*d", numW, n))
+}
+
 // bar renders [████░░░░] with `width` cells.
 func bar(value float64, width int) string {
 	if value < 0 {

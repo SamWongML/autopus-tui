@@ -19,11 +19,12 @@ import (
 type model struct {
 	width, height int
 
-	tab     int // 0..5
-	focus   int // 0 = primary list/stream, 1 = sidebar/detail (Tab toggles)
-	selTask int // selection index in tasks roster
-	selCfg  int // selection index in config rows
-	selProf int // selection index in profiles
+	tab     int  // 0..5
+	focus   int  // 0 = primary list/stream, 1 = sidebar/detail (Tab toggles)
+	selTask int  // selection index in tasks roster
+	selCfg  int  // selection index in config rows
+	selProf int  // selection index in profiles
+	peek    bool // Run tab: show the task-detail overlay on the right
 }
 
 func initialModel() model {
@@ -60,6 +61,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setTab(5)
 		case "tab":
 			m.focus = 1 - m.focus
+		case " ":
+			if m.tab == 1 {
+				m.peek = !m.peek
+			}
 		case "j", "down":
 			m.moveSelection(+1)
 		case "k", "up":
@@ -159,7 +164,7 @@ func (m model) View() string {
 		cmdPlaceholder = "command — :restart  :pause  :follow  :workspace  :profile  :help"
 
 	case 1:
-		body = renderRun(contentW, bodyH)
+		body = renderRun(contentW, bodyH, m.peek)
 		cmdMode = "reply"
 		cmdPlaceholder = "reply inline — ⏎ send to claude · ↑ history · esc detach"
 
@@ -268,7 +273,11 @@ func (m model) footerKeys() []KeyHint {
 				{"k", "kill"}, {"r", "reply"}, {"o", "$EDITOR"}, {"c", "copy"},
 			}
 		}
-		return append(ks, KeyHint{"Tab", "switch focus"})
+		peekHint := KeyHint{"␣", "peek"}
+		if m.peek {
+			peekHint = KeyHint{"␣", "close peek"}
+		}
+		return append(ks, peekHint, KeyHint{"Tab", "switch focus"})
 	case 2:
 		var ks []KeyHint
 		if m.focus == 0 {
