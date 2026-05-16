@@ -331,7 +331,11 @@ func titleBar(title string, width int) string {
 		Render(bar)
 }
 
-func tabBar(active int, width int) string {
+// tabBar renders the colored tab labels (left half of the top strip).
+// Composition with the right-side breadcrumb and global connection dot is
+// done by topStrip — keeping the two concerns separate lets each tab pick
+// its own breadcrumb without re-implementing the tab layout.
+func tabBar(active int) string {
 	tabs := []string{"status", "run", "tasks", "log", "config", "profiles"}
 	var parts []string
 	for i, t := range tabs {
@@ -346,14 +350,33 @@ func tabBar(active int, width int) string {
 			parts = append(parts, numStyled+" "+lblStyled)
 		}
 	}
-	left := strings.Join(parts, "  ")
-	meta := sDim.Render("daemon ") + sOk.Render("●") + sDim.Render(" online · profile ") +
-		sFg1.Render(daemon.Profile) + sDim.Render(fmt.Sprintf(" · pid %d · %s", daemon.PID, daemon.Uptime))
-	gap := width - lipgloss.Width(left) - lipgloss.Width(meta) - 2
+	return strings.Join(parts, "  ")
+}
+
+// topStrip composes the top chrome row: [tabs]  [breadcrumb]  ● <profile>.
+// `right` is the per-tab breadcrumb (caller-rendered, already styled, may be
+// empty). The trailing `● <profile>` is global and always present; the dot
+// reflects daemon.Connected. The whole row is wrapped in the bottom-border
+// hairline so visual separation between chrome and body stays consistent.
+func topStrip(tabs, right string, width int) string {
+	dot := sOk.Render("●")
+	if !daemon.Connected {
+		dot = sErr.Render("●")
+	}
+	global := dot + " " + sDim.Render(daemon.Profile)
+
+	var rightFull string
+	if right == "" {
+		rightFull = global
+	} else {
+		rightFull = right + "   " + global
+	}
+
+	gap := width - lipgloss.Width(tabs) - lipgloss.Width(rightFull) - 2 // -2 for horizontal padding
 	if gap < 1 {
 		gap = 1
 	}
-	row := fillBg(left+strings.Repeat(" ", gap)+meta, bg)
+	row := fillBg(tabs+strings.Repeat(" ", gap)+rightFull, bg)
 	return lipgloss.NewStyle().
 		Background(bg).
 		Width(width).

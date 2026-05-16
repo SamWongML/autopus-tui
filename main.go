@@ -20,6 +20,7 @@ type model struct {
 	width, height int
 
 	tab     int // 0..5
+	focus   int // 0 = primary list/stream, 1 = sidebar/detail (Tab toggles)
 	selTask int // selection index in tasks roster
 	selCfg  int // selection index in config rows
 	selProf int // selection index in profiles
@@ -28,7 +29,7 @@ type model struct {
 func initialModel() model {
 	return model{
 		width: 160, height: 48,
-		tab: 0, selTask: 0, selCfg: 3, selProf: 0, // selCfg=3 ⇒ max-concurrent-tasks (dirty, selected in mock)
+		tab: 0, focus: 0, selTask: 0, selCfg: 3, selProf: 0, // selCfg=3 ⇒ max-concurrent-tasks (dirty, selected in mock)
 	}
 }
 
@@ -46,17 +47,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
 		case "1":
-			m.tab = 0
+			m.setTab(0)
 		case "2":
-			m.tab = 1
+			m.setTab(1)
 		case "3":
-			m.tab = 2
+			m.setTab(2)
 		case "4":
-			m.tab = 3
+			m.setTab(3)
 		case "5":
-			m.tab = 4
+			m.setTab(4)
 		case "6":
-			m.tab = 5
+			m.setTab(5)
+		case "tab":
+			m.focus = 1 - m.focus
 		case "j", "down":
 			m.moveSelection(+1)
 		case "k", "up":
@@ -68,6 +71,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// setTab switches the active tab and resets focus to the primary panel —
+// every tab's default focus is the list/stream side (P4 introduces visual
+// dimming of the unfocused side; here we only need the model state correct).
+func (m *model) setTab(t int) {
+	m.tab = t
+	m.focus = 0
 }
 
 func (m *model) moveSelection(delta int) {
@@ -116,10 +127,11 @@ func (m model) View() string {
 		return sDim.Render("terminal too small — resize to at least 80×24")
 	}
 
-	tabs := tabBar(m.tab, m.width)
+	tabs := tabBar(m.tab)
+	top := topStrip(tabs, m.breadcrumb(), m.width)
 
 	// Compute body height.
-	chromeH := lipgloss.Height(tabs) + 2 /*cmdbar*/ + 2 /*footer*/
+	chromeH := lipgloss.Height(top) + 2 /*cmdbar*/ + 2 /*footer*/
 	bodyH := m.height - chromeH
 	if bodyH < 8 {
 		bodyH = 8
@@ -127,64 +139,41 @@ func (m model) View() string {
 
 	contentW := m.width - 2
 	var body string
-	var keys []KeyHint
 	var cmdMode, cmdPlaceholder string
 
 	switch m.tab {
 	case 0:
 		body = renderStatus(contentW, bodyH, m.selTask)
-		keys = []KeyHint{
-			{"1-6", "tabs"}, {"↑↓", "select"}, {"⏎", "open"},
-			{"r", "restart"}, {"f", "follow log"}, {"n", "new task"}, {":", "command"},
-		}
 		cmdMode = ":"
 		cmdPlaceholder = "command — :restart  :pause  :follow  :workspace  :profile  :help"
 
 	case 1:
 		body = renderRun(contentW, bodyH)
-		keys = []KeyHint{
-			{"esc", "back"}, {"j/k", "scroll"}, {"g/G", "top/end"},
-			{"f", "follow"}, {"/", "filter"}, {"y", "yank seq"}, {"k", "kill"},
-		}
 		cmdMode = "reply"
 		cmdPlaceholder = "reply inline — ⏎ send to claude · ↑ history · esc detach"
 
 	case 2:
 		body = renderTasks(contentW, bodyH, m.selTask)
-		keys = []KeyHint{
-			{"↑↓", "select"}, {"⏎", "open run"}, {"k", "kill"},
-			{"p", "pause runtime"}, {"s", "sort"}, {"/", "filter"}, {"a", "show all"},
-		}
 		cmdMode = ":"
 		cmdPlaceholder = "command — :kill t-1284  :pause runtime claude  :ws open"
 
 	case 3:
 		body = renderLog(contentW, bodyH)
-		keys = []KeyHint{
-			{"f", "follow"}, {"/", "search"}, {"1-4", "level"},
-			{"t", "hide ticks"}, {"j/k", "scroll"}, {"y", "yank"}, {"o", "$PAGER"},
-		}
 		cmdMode = "/"
 		cmdPlaceholder = `search — regex ok · ↑ history · Esc clear   task t-128\d`
 
 	case 4:
 		body = renderConfig(contentW, bodyH, m.selCfg)
-		keys = []KeyHint{
-			{"↑↓", "select"}, {"⏎/e", "edit"}, {"⌃s", "save"},
-			{"r", "reload"}, {"d", "defaults"}, {"v", "view file"},
-		}
 		cmdMode = ":"
 		cmdPlaceholder = "command — :save  :reload  :reset max-concurrent-tasks"
 
 	case 5:
 		body = renderProfiles(contentW, bodyH, m.selProf)
-		keys = []KeyHint{
-			{"↑↓", "select"}, {"⏎", "attach"}, {"s", "start"}, {"S", "stop"},
-			{"r", "restart"}, {"n", "new"}, {"d", "set default"},
-		}
 		cmdMode = ":"
 		cmdPlaceholder = "command — :profile staging  :start  :stop  :default selfhost"
 	}
+
+	keys := m.footerKeys()
 
 	// Pad body to bodyH so chrome sits at the bottom. Empty pad lines are
 	// rendered as bg-painted blank rows so the canvas stays consistent below
@@ -210,7 +199,89 @@ func (m model) View() string {
 	cmdrow := cmdBar(cmdMode, cmdPlaceholder, "", m.width)
 	ft := footer(keys, m.width)
 
-	return joinV(tabs, bodyBlock, cmdrow, ft)
+	return joinV(top, bodyBlock, cmdrow, ft)
+}
+
+// breadcrumb renders the right side of the top strip — a per-tab scope hint.
+// Status owns the daemon card in its body, so it returns "" and lets topStrip
+// fall back to just `● <profile>`. Every other tab gets a literal breadcrumb
+// describing the current selection or filter.
+func (m model) breadcrumb() string {
+	switch m.tab {
+	case 1:
+		t := tasks[clamp(m.selTask, 0, len(tasks)-1)]
+		return sDim.Render("tasks › ") + sFg1.Render(t.ID) +
+			sDim.Render(" · ws ") + sFg1.Render(t.WS) +
+			sDim.Render(" · seq ") + sFg1.Render(fmt.Sprintf("%d", t.Seq))
+	case 2:
+		return sDim.Render("tasks · in-flight · sort started↓")
+	case 3:
+		return sDim.Render("log · level=info · follow ") + sOk.Render("●")
+	case 4:
+		row := cfgDaemon[clamp(m.selCfg, 0, len(cfgDaemon)-1)]
+		s := sDim.Render("config · ") + sFg1.Render(row.K)
+		if row.Dirty {
+			s += " " + sWarn.Render("▲")
+		}
+		return s
+	case 5:
+		return sDim.Render("profiles · active=") + sFg1.Render(daemon.Profile)
+	}
+	return ""
+}
+
+// footerKeys returns the key-hint row for the bottom footer. For tabs that
+// expose two focus zones (run, tasks) the hint set switches with m.focus and
+// is suffixed with a Tab/switch-focus reminder. Other tabs are focus-agnostic.
+func (m model) footerKeys() []KeyHint {
+	switch m.tab {
+	case 0:
+		return []KeyHint{
+			{"1-6", "tabs"}, {"↑↓", "select"}, {"⏎", "open"},
+			{"r", "restart"}, {"f", "follow log"}, {"n", "new task"}, {":", "command"},
+		}
+	case 1:
+		var ks []KeyHint
+		if m.focus == 0 {
+			ks = []KeyHint{
+				{"j/k", "scroll"}, {"g/G", "top/end"},
+				{"f", "follow"}, {"y", "yank"}, {"/", "filter"},
+			}
+		} else {
+			ks = []KeyHint{
+				{"k", "kill"}, {"r", "reply"}, {"o", "$EDITOR"}, {"c", "copy"},
+			}
+		}
+		return append(ks, KeyHint{"Tab", "switch focus"})
+	case 2:
+		var ks []KeyHint
+		if m.focus == 0 {
+			ks = []KeyHint{
+				{"↑↓", "select"}, {"⏎", "open run"}, {"/", "filter"}, {"s", "sort"},
+			}
+		} else {
+			ks = []KeyHint{
+				{"r", "reply"}, {"k", "kill"}, {"c", "copy"}, {"o", "open"},
+			}
+		}
+		return append(ks, KeyHint{"Tab", "switch focus"})
+	case 3:
+		return []KeyHint{
+			{"f", "follow"}, {"/", "search"}, {"1-4", "level"},
+			{"t", "hide ticks"}, {"j/k", "scroll"}, {"y", "yank"}, {"o", "$PAGER"},
+		}
+	case 4:
+		return []KeyHint{
+			{"↑↓", "select"}, {"⏎/e", "edit"}, {"⌃s", "save"},
+			{"r", "reload"}, {"d", "defaults"}, {"v", "view file"},
+		}
+	case 5:
+		return []KeyHint{
+			{"↑↓", "select"}, {"⏎", "attach"}, {"s", "start"}, {"S", "stop"},
+			{"r", "restart"}, {"n", "new"}, {"d", "set default"},
+		}
+	}
+	return nil
 }
 
 func main() {

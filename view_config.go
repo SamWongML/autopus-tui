@@ -31,7 +31,7 @@ func renderConfigHead(width int) string {
 	left := sFg1.Render("config file") + "  " + sOk.Render("~/.multica/config.toml")
 	right := sDim.Render("profile: ") + sFg.Render("default") + "   " +
 		sDim.Render("last-applied: ") + sFg1.Render("14:12:08") + "   " +
-		sDim.Render("dirty: ") + sWarn.Render("● 2 unsaved")
+		sDim.Render("dirty: ") + dirtyMark + sWarn.Render(" 2 unsaved")
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right) - 4
 	if gap < 1 {
 		gap = 1
@@ -54,7 +54,7 @@ func paneCfgDaemon(width, height int, selected int) string {
 		lines = append(lines, cfgRow(r, i == selected, inner))
 	}
 	body := strings.Join(lines, "\n")
-	return pane("daemon", "multica daemon config", body, width, height, false)
+	return pane("daemon", "· multica config", body, width, height, false)
 }
 
 func cfgRow(r CfgRow, selected bool, width int) string {
@@ -90,7 +90,7 @@ func cfgRow(r CfgRow, selected bool, width int) string {
 		vBold = false
 	}
 	if r.Dirty {
-		v = "● " + v
+		v = "▲ " + v
 		vColor = warn
 		vBold = false
 	}
@@ -128,9 +128,13 @@ func cfgRow(r CfgRow, selected bool, width int) string {
 			hint = "[read-only] " + hint
 		}
 		if r.Dirty {
-			hint = "● unsaved · " + hint
+			hint = "unsaved · " + hint
 		}
-		hintRow := strings.Repeat(" ", kW+2) + sDim.Render(hint)
+		hintRow := strings.Repeat(" ", kW+2)
+		if r.Dirty {
+			hintRow += dirtyMark + " "
+		}
+		hintRow += sDim.Render(hint)
 		row += "\n" + hintRow
 	}
 	return row

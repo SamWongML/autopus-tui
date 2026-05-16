@@ -37,6 +37,10 @@ var (
 	sViolet = lipgloss.NewStyle().Foreground(violet)
 )
 
+// dirtyMark is the "unsaved / out-of-sync" indicator. Distinct glyph from the
+// healthy `●` so config rows and chrome dots are visually unambiguous.
+var dirtyMark = sWarn.Render("▲")
+
 // Status glyphs — ASCII-safe so they render even where box-drawing fails.
 func statusGlyph(s string) string {
 	switch s {
@@ -56,6 +60,20 @@ func statusGlyph(s string) string {
 		return "…"
 	}
 	return "·"
+}
+
+func prDot(state string) string {
+	switch state {
+	case "waiting":
+		return sWarn.Render("●")
+	case "passed":
+		return sOk.Render("●")
+	case "merged":
+		return sViolet.Render("●")
+	case "draft":
+		return sFaint.Render("●")
+	}
+	return sFaint.Render("·")
 }
 
 func statusStyle(s string) lipgloss.Style {
