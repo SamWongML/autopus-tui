@@ -153,3 +153,37 @@ var cfgLogging = []CfgRow{
 	{K: "keep", V: "5 files"},
 	{K: "redact-secrets", V: "on", Tone: "ok"},
 }
+
+// Status-tab KPI dashboard fixtures (added in Phase C). These replace the
+// embedded mini-task-table and log-tail panes — the new Status renders four
+// big-number tiles, two sparklines, and a recent-failures feed.
+
+// tasksPerHour is a 24-bucket series: tasks completed per hour over the last
+// 24h, oldest first. Used by the tasks/hr sparkline.
+var tasksPerHour = []float64{
+	2, 3, 1, 0, 0, 1, 4, 8, 11, 14, 9, 7,
+	6, 8, 12, 10, 7, 5, 4, 6, 9, 8, 5, 7,
+}
+
+// linesPerMin is a 30-bucket series: log lines emitted per minute over the
+// last 30 min, oldest first. Used by the lines/min sparkline.
+var linesPerMin = []float64{
+	22, 19, 25, 28, 31, 24, 18, 14, 12, 20,
+	33, 41, 38, 29, 22, 17, 15, 19, 24, 30,
+	36, 42, 39, 33, 27, 21, 25, 31, 28, 34,
+}
+
+// Failure is one row in the Status-tab "recent failures" feed: a task that
+// exited non-zero or surfaced an error. Phase D will replace this with a
+// /health-derived stream.
+type Failure struct {
+	T, ID, Runtime, Issue, Msg string
+}
+
+var failures = []Failure{
+	{"14:32:09", "t-1280", "codex", "#4114", "exit 1: bundler resolver — stripe-ruby 17.0"},
+	{"09:47:11", "t-1247", "claude", "#4087", "TypeError in webhook_event_spec.rb:142"},
+	{"06:18:02", "t-1230", "codex", "#4053", "rspec timeout after 240s — flaky integration"},
+	{"02:55:34", "t-1212", "claude", "#4031", "git push rejected — branch protection"},
+	{"22:40:12", "t-1198", "codex", "#4019", "out of memory: rss=2.1G killed by kernel"},
+}

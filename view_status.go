@@ -2,142 +2,124 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderStatus builds the default `mtop status` screen.
-func renderStatus(width, height int, selectedTask int) string {
-	colGap := 2
-	leftW := (width - colGap) / 2
-	// rightW absorbs the rounding remainder so the two columns plus the gap
-	// always sum to exactly `width`; otherwise an odd `width` leaves a 1-cell
-	// unpainted strap at the right edge.
-	rightW := width - leftW - colGap
+// renderStatus builds the Status tab as a dashboard: a row of 4 big-number
+// KPI tiles, a row of 2 sparkline panes, and a recent-failures feed below.
+// The old daemon/runtimes/mini-task/log-tail panes were removed in Phase C —
+// daemon identity now lives in the tab-bar meta, runtime info surfaces via
+// the runtimes-online KPI, and task/log detail lives on its own tabs.
+//
+// The `_ unused` selectedTask argument is preserved for parity with main.go's
+// switch arm; selection no longer drives anything on Status.
+func renderStatus(width, height int, _ int) string {
+	// Row heights scale with available body height. At 120×40 (bodyH=34) we
+	// land on 7 / 12 / 15. At 80×24 (bodyH=18) on 5 / 6 / 7. At 200×60
+	// (bodyH=54) on 9 / 18 / 27. Always sums to exactly `height`.
+	kpiH := height * 21 / 100
+	if kpiH < 5 {
+		kpiH = 5
+	}
+	sparkH := height * 36 / 100
+	if sparkH < 6 {
+		sparkH = 6
+	}
+	failH := height - kpiH - sparkH
+	if failH < 5 {
+		failH = 5
+		kpiH = (height - failH) * 37 / 100
+		if kpiH < 5 {
+			kpiH = 5
+		}
+		sparkH = height - kpiH - failH
+	}
 
-	// Body height available after chrome subtracted by caller.
-	// Split each column 1.05 / 0.95 like the design.
-	leftTop := height * 53 / 100
-	leftBot := height - leftTop
-	rightTop := height / 2
-	rightBot := height - rightTop
+	row1 := kpiRow(statusKPIs(), width, kpiH)
+	row2 := sparkRow(width, sparkH)
+	row3 := failuresPane(width, failH)
+	return joinV(row1, row2, row3)
+}
 
-	left := joinV(
-		paneDaemon(leftW, leftTop),
-		paneRuntimes(leftW, leftBot),
+// statusKPIs derives the four Status-tab KPI tiles from current mock fixtures.
+// Phase D replaces the call sites with /health-derived values.
+func statusKPIs() []kpi {
+	active := 0
+	for _, t := range tasks {
+		switch t.Status {
+		case "working", "waiting", "queued":
+			active++
+		}
+	}
+	online := 0
+	totalCap := 0
+	for _, r := range runtimes {
+		online++
+		totalCap += r.Max
+	}
+	// Titles are intentionally single words so the pane top border doesn't
+	// truncate at 80-cell width. The value+unit+delta lines carry the rest
+	// of the context (e.g. "4 / 7 cap", "+2 vs 1h").
+	return []kpi{
+		{
+			title:    "active",
+			value:    fmt.Sprintf("%d", active),
+			unit:     fmt.Sprintf("/ %d cap", totalCap),
+			delta:    "+2 vs 1h",
+			deltaDir: +1,
+			tone:     "accent",
+		},
+		{
+			title:    "online",
+			value:    fmt.Sprintf("%d", online),
+			unit:     fmt.Sprintf("/ %d runtimes", len(runtimes)),
+			delta:    "claude · codex",
+			deltaDir: 0,
+			tone:     "ok",
+		},
+		{
+			title:    "tokens",
+			value:    "187k",
+			unit:     "today",
+			delta:    "+18% vs 24h",
+			deltaDir: +1,
+			tone:     "info",
+		},
+		{
+			title:    "errors",
+			value:    fmt.Sprintf("%d", len(failures)),
+			unit:     "today",
+			delta:    "-2 vs 24h",
+			deltaDir: -1,
+			tone:     "err",
+		},
+	}
+}
+
+// sparkRow lays out the tasks/hr and lines/min sparkline panes side-by-side.
+// Each pane gets half the row minus a 2-cell gap; rounding remainder goes to
+// the right pane so the row width matches `width` exactly.
+func sparkRow(width, height int) string {
+	gap := 2
+	leftW := (width - gap) / 2
+	rightW := width - leftW - gap
+	left := sparklinePane(
+		"tasks / hour", "last 24h",
+		tasksPerHour, "",
+		leftW, height,
 	)
-	right := joinV(
-		paneTasksInFlight(rightW, rightTop, selectedTask),
-		paneLogTail(rightW, rightBot),
+	right := sparklinePane(
+		"lines / min", "last 30 min",
+		linesPerMin, "",
+		rightW, height,
 	)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, bgPad(colGap), right)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, bgPad(gap), right)
 }
 
-func paneDaemon(width, height int) string {
-	inner := width - 4
-	half := inner / 2
-	// 2-column KV grid: 12 KVs in 6 rows.
-	type pair struct{ k, v, tone string }
-	rows := [][2]pair{
-		{{"state", "● running", "ok"}, {"pid", fmt.Sprintf("%d", daemon.PID), ""}},
-		{{"uptime", daemon.Uptime, ""}, {"version", "v" + daemon.Version, ""}},
-		{{"server", daemon.Server, ""}, {"connection", "● connected", "ok"}},
-		{{"device", daemon.Device, ""}, {"mem", fmt.Sprintf("%d MB / %d", daemon.MemMB, daemon.MemMax), ""}},
-		{{"cpu", fmt.Sprintf("%.1f%%", daemon.CPU), ""}, {"socket", daemon.Socket, "dim"}},
-		{{"log", daemon.Log, "dim"}, {"workspaces", daemon.WsRoot, "dim"}},
-	}
-	grid := make([]string, 0, len(rows))
-	for _, row := range rows {
-		l := kv(row[0].k, row[0].v, row[0].tone, half)
-		r := kv(row[1].k, row[1].v, row[1].tone, half)
-		grid = append(grid, l+"  "+r)
-	}
-	body := kvPane(inner, []kvSection{
-		{"", grid},
-		{"tickers", []string{
-			ticker("poll       3s", daemon.PollsToday, daemon.LastPoll+" · 0 new", "accent", inner),
-			ticker("heartbeat 15s", daemon.HeartbeatsToday, daemon.LastHB+" · ok", "ok", inner),
-		}},
-	})
-	return pane("daemon", "profile · "+daemon.Profile, body, width, height, false)
-}
-
-func ticker(label string, n int, last, tone string, width int) string {
-	pulse := sAccent.Render("●")
-	if tone == "ok" {
-		pulse = sOk.Render("●")
-	}
-	num := sAccent.Render(fmt.Sprintf("%6s", commafy(n)))
-	if tone == "ok" {
-		num = sOk.Render(fmt.Sprintf("%6s", commafy(n)))
-	}
-	lbl := sFg1.Render(label)
-	tail := sDim.Render(last)
-	left := pulse + "  " + lbl + "  " + num
-	gap := width - lipgloss.Width(left) - lipgloss.Width(tail)
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + tail
-}
-
-func commafy(n int) string {
-	s := fmt.Sprintf("%d", n)
-	if n < 1000 {
-		return s
-	}
-	// Insert commas.
-	var b strings.Builder
-	for i, c := range s {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteRune(c)
-	}
-	return b.String()
-}
-
-func paneRuntimes(width, height int) string {
-	inner := width - 4
-	var lines []string
-	for i, r := range runtimes {
-		marker := sAccent.Render("▎ ")
-		if i > 0 {
-			marker = sFaint.Render("▎ ")
-		}
-		head := marker + sOk.Render("●") + " " + sFg.Render(r.Name) +
-			"  " + sDim.Render("v"+r.Ver) + "  " + sInfo.Render("model="+r.Model)
-		conc := bar(float64(r.Busy)/float64(r.Max), 8) + " " + sDim.Render(fmt.Sprintf(" %d/%d", r.Busy, r.Max))
-		// Align bar to right
-		gap := inner - lipgloss.Width(head) - lipgloss.Width(conc)
-		if gap < 1 {
-			gap = 1
-		}
-		lines = append(lines, head+strings.Repeat(" ", gap)+conc)
-
-		foot := marker + sDim.Render("$ ") + sFg1.Render(r.Bin)
-		stat := sDim.Render(fmt.Sprintf("%d tasks · %d err", r.TasksToday, r.ErrsToday))
-		gap = inner - lipgloss.Width(foot) - lipgloss.Width(stat)
-		if gap < 1 {
-			gap = 1
-		}
-		lines = append(lines, foot+strings.Repeat(" ", gap)+stat)
-		if i < len(runtimes)-1 {
-			lines = append(lines, "")
-		}
-	}
-	body := strings.Join(lines, "\n")
-	return pane("runtimes", "2 of 2 registered · auto-detected on $PATH", body, width, height, false)
-}
-
-func paneTasksInFlight(width, height int, selected int) string {
-	body := taskTable(tasks, width, height, tableCompact, selected)
-	return pane("tasks · in flight", "3/20 busy · 1 queued · sort: started ↓", body, width, height, false)
-}
-
-func paneLogTail(width, height int) string {
-	body := logTable(logLines, width, height, logTail)
-	return pane("daemon log · tail", "follow ●LIVE · q to detach", body, width, height, true)
+// failuresPane wraps the recentFailures widget in a pane sized to the
+// remaining row of the Status tab.
+func failuresPane(width, height int) string {
+	body := recentFailures(failures, width, height)
+	return pane("recent failures", "last 24h · enter to open task", body, width, height, false)
 }

@@ -12,7 +12,7 @@ something is learned. Never delete Rules entries.
 |-------|-----------------------------------|--------|-------------------------|
 | A     | De-duplicate widgets (mechanical) | `[x]`  | `refactor/dedup`        |
 | B     | Adopt Bubbles library             | `[x]`  | `feat/bubbles`          |
-| C     | KPI dashboard Status tab          | `[ ]`  | `feat/kpi-dashboard`    |
+| C     | KPI dashboard Status tab          | `[x]`  | `feat/kpi-dashboard`    |
 | D     | Wire real `/health` data source   | `[ ]`  | `feat/health-wire`      |
 | E     | Focus / scroll model              | `[ ]`  | `feat/focus-scroll`     |
 | F     | Polish, palette, golden tests     | `[ ]`  | `feat/polish`           |
@@ -54,12 +54,12 @@ come after A so the new `internal/source/` package isn't ported twice. F is last
 > **Goal:** redesign Status as a real dashboard, not a miniature copy of every other tab. Removes pressure for two-size widgets.
 > **Done when:** Status renders 4 KPI tiles + 2 sparklines + recent-failures feed at 120×40; no tables.
 
-- [ ] C.1 Decide tile layout: 4 KPIs (active tasks, runtimes online, tokens today, errors today)
-- [ ] C.2 Build `widget_kpi.go` — big-number tile with delta arrow
-- [ ] C.3 Build `widget_sparkline.go` — single sparkline renderer reused for tasks/hr and lines/min
-- [ ] C.4 Build "recent failures" feed (max 5, click-through to Run tab)
-- [ ] C.5 Delete `paneLogTail` and the embedded mini-task-table from Status (no longer needed after A.4 + this phase)
-- [ ] C.6 Update goldens
+- [x] C.1 Decide tile layout: 4 KPIs (active tasks, runtimes online, tokens today, errors today)
+- [x] C.2 Build `widget_kpi.go` — big-number tile with delta arrow
+- [x] C.3 Build `widget_sparkline.go` — single sparkline renderer reused for tasks/hr and lines/min
+- [x] C.4 Build "recent failures" feed (max 5, click-through to Run tab)
+- [x] C.5 Delete `paneLogTail` and the embedded mini-task-table from Status (no longer needed after A.4 + this phase)
+- [x] C.6 Update goldens
 
 ## Phase D — Wire real `/health` data source
 
@@ -133,6 +133,13 @@ come after A so the new `internal/source/` package isn't ported twice. F is last
 - Bubbles table widths: `Styles.Cell.Padding(...)` is *not* Inline-stripped (the inner `lipgloss.NewStyle().Width().MaxWidth().Inline(true)` only wraps the value; `Cell` wraps outside that). Padding therefore widens each column by 2; easier to bake a trailing space into the cell value (or column title) so column gaps don't break `SetWidth` math.
 - Spinner frame in dumps: `liveSpin` is a package-level `spinner.Model` initialized in `spinner.go:init()`. In `--dump`, no `Update` ever runs, so `View()` always returns frame 0. That makes the snapshot deterministic; a different spinner.Style is needed if frame 0 should not be `█` (bubbles/spinner Pulse).
 - Tasks-tab key routing: `j/k` on tab 2 forward to `m.tasksTbl.Update(msg)` rather than `moveSelection(±1)`; `g`/`G` call `GotoTop`/`GotoBottom`. Selection on Status tab still uses `selTask` against the manual compact `taskTable`.
+- Phase C dashboard layout (2026-05-16): Status tab body splits as `kpiH : sparkH : failH = 21% : 36% : remainder` of bodyH, clamped to a 5-row min on each band. At 120×40 (bodyH 34) that's 7 / 12 / 15; at 80×24 (bodyH 18) that's 5 / 6 / 7; at 200×60 (bodyH 54) that's 11 / 19 / 24.
+- KPI tile titles must be ≤ 11 cells wide for the smallest tile (width 18 at 80-cell viewport) to avoid pane top-border truncation. `buildTopBorder` in chrome.go truncates when `right < 1`, i.e. when `labelWidth > width - 7`. Single-word titles ("active", "online", "tokens", "errors") render cleanly; descriptive context (counts, deltas) lives in the body's value / unit / delta lines.
+- KPI tile content centering: `lipgloss.Place(w, h, Center, Center, body)` centers the rendered block as a unit using the longest line as block width, so shorter lines are left-aligned within the block. To get per-line centering, pre-wrap each row in `lipgloss.NewStyle().Width(inner).Align(Center).Background(bg)` before Place. Without that, a 2-line tile where line 2 is wider (e.g. "→ claude · codex" under "2 / 2") flush-lefts line 1.
+- Sparkline stat bar fallback: at narrow widths the four-stat row `min · avg · max · now` overflows inner. `sparklinePane` measures each variant against `inner - 4` and picks the widest that fits (full → 3-stat short → "now N" only). 80-cell viewport falls through to the short variant for `linesPerMin` (its larger numbers push width past the 36-cell band).
+- `bgPadV(width, height)` is the right primitive for a vertical strip of bg-painted blank cells; `bgPad(n)` only produces a single-row gap. `kpiRow` uses `bgPadV(gap, height)` between tiles to avoid an unpainted seam.
+- Phase C LOC delta (2026-05-16): code went **+374 lines** net. `view_status.go` shrinks 143 → 125 (−18; paneDaemon/paneRuntimes/paneTasksInFlight/paneLogTail/ticker/commafy all deleted, replaced by `statusKPIs`/`sparkRow`/`failuresPane`), `data.go` grows 155 → 189 (+34; sparkline series + failures fixture), and three new widget files add `widget_kpi.go` (111), `widget_sparkline.go` (191), `widget_failures.go` (56). The wins here are visual, not size — the dashboard reads at a glance, and `Snapshot` from Phase D drops in by replacing the `statusKPIs` reads of `tasks` / `runtimes` / `failures` with live values.
+- Phase C golden diffs (intentional, captured in `testdata/{80x24,120x40,200x60}.txt`): all three goldens differ only inside the tab-1 block. tabs 2–6 are byte-identical. The Status body changed from `daemon/runtimes/in-flight-tasks/log-tail` quad-pane → KPI tile row + sparkline row + recent-failures pane. Tab-bar meta still surfaces daemon identity (pid, uptime), so the daemon pane removal didn't lose any header-bar info.
 
 ## Compact Instructions
 
