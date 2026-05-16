@@ -83,6 +83,10 @@ type LogLine struct {
 	T, Lvl, Src, Msg string
 }
 
+// 24h throughput series shown on the Status pulse pane.
+var tasksPerHour = []int{2, 1, 0, 0, 1, 2, 3, 4, 5, 4, 6, 7, 6, 5, 7, 8, 6, 9, 10, 8, 6, 5, 4, 3}
+var errsPerHour = []int{0, 0, 0, 0, 0, 1, 0, 1, 2, 1, 0, 1, 0, 2, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1}
+
 var logLines = []LogLine{
 	{"14:32:14", "info", "runtime.claude", "task t-1284 message seq=84 · result · 1 ms"},
 	{"14:32:14", "trace", "poll", "server tick → 0 new, 1 updated, 0 cancelled"},

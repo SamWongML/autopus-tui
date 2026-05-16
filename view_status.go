@@ -10,6 +10,7 @@ import (
 
 // renderStatus builds the default `mtop status` screen.
 func renderStatus(width, height int, selectedTask int) string {
+	_ = selectedTask // status no longer surfaces task selection
 	colGap := 2
 	leftW := (width - colGap) / 2
 	// rightW absorbs the rounding remainder so the two columns plus the gap
@@ -17,11 +18,9 @@ func renderStatus(width, height int, selectedTask int) string {
 	// unpainted strap at the right edge.
 	rightW := width - leftW - colGap
 
-	// Body height available after chrome subtracted by caller.
-	// Split each column 1.05 / 0.95 like the design.
-	leftTop := height * 53 / 100
+	leftTop := height * 60 / 100
 	leftBot := height - leftTop
-	rightTop := height / 2
+	rightTop := height * 55 / 100
 	rightBot := height - rightTop
 
 	left := joinV(
@@ -29,8 +28,8 @@ func renderStatus(width, height int, selectedTask int) string {
 		paneRuntimes(leftW, leftBot),
 	)
 	right := joinV(
-		paneTasksInFlight(rightW, rightTop, selectedTask),
-		paneLogTail(rightW, rightBot),
+		panePulse(rightW, rightTop),
+		paneLastEvents(rightW, rightBot),
 	)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, bgPad(colGap), right)
@@ -39,7 +38,6 @@ func renderStatus(width, height int, selectedTask int) string {
 func paneDaemon(width, height int) string {
 	inner := width - 4
 	half := inner / 2
-	// 2-column KV grid: 12 KVs in 6 rows.
 	type pair struct{ k, v, tone string }
 	rows := [][2]pair{
 		{{"state", "● running", "ok"}, {"pid", fmt.Sprintf("%d", daemon.PID), ""}},
@@ -55,10 +53,6 @@ func paneDaemon(width, height int) string {
 		r := kv(row[1].k, row[1].v, row[1].tone, half)
 		lines = append(lines, l+"  "+r)
 	}
-	lines = append(lines, hr("tickers", inner))
-	lines = append(lines, ticker("poll       3s", daemon.PollsToday, daemon.LastPoll+" · 0 new", "accent", inner))
-	lines = append(lines, ticker("heartbeat 15s", daemon.HeartbeatsToday, daemon.LastHB+" · ok", "ok", inner))
-
 	body := strings.Join(lines, "\n")
 	return pane("daemon", "profile · "+daemon.Profile, body, width, height, false)
 }
@@ -98,100 +92,168 @@ func commafy(n int) string {
 	return b.String()
 }
 
+// paneRuntimes renders one row per runtime: a utilization bar plus today's
+// counts. Bin path and full version live in Config (tab 5).
 func paneRuntimes(width, height int) string {
 	inner := width - 4
 	var lines []string
-	for i, r := range runtimes {
-		marker := sAccent.Render("▎ ")
-		if i > 0 {
-			marker = sFaint.Render("▎ ")
-		}
-		head := marker + sOk.Render("●") + " " + sFg.Render(r.Name) +
-			"  " + sDim.Render("v"+r.Ver) + "  " + sInfo.Render("model="+r.Model)
-		conc := bar(float64(r.Busy)/float64(r.Max), 8) + " " + sDim.Render(fmt.Sprintf(" %d/%d", r.Busy, r.Max))
-		// Align bar to right
-		gap := inner - lipgloss.Width(head) - lipgloss.Width(conc)
-		if gap < 1 {
-			gap = 1
-		}
-		lines = append(lines, head+strings.Repeat(" ", gap)+conc)
-
-		foot := marker + sDim.Render("$ ") + sFg1.Render(r.Bin)
-		stat := sDim.Render(fmt.Sprintf("%d tasks · %d err", r.TasksToday, r.ErrsToday))
-		gap = inner - lipgloss.Width(foot) - lipgloss.Width(stat)
-		if gap < 1 {
-			gap = 1
-		}
-		lines = append(lines, foot+strings.Repeat(" ", gap)+stat)
-		if i < len(runtimes)-1 {
-			lines = append(lines, "")
-		}
+	for _, r := range runtimes {
+		lines = append(lines, runtimeRow(r, inner))
 	}
 	body := strings.Join(lines, "\n")
-	return pane("runtimes", "2 of 2 registered · auto-detected on $PATH", body, width, height, false)
+	return pane("runtimes", fmt.Sprintf("%d registered · auto-detected on $PATH", len(runtimes)), body, width, height, false)
 }
 
-func paneTasksInFlight(width, height int, selected int) string {
-	inner := width - 4
-	// Columns: status(2) id(7) title(rest) runtime(8) seq(8) elapsed(8) cost(6)
-	statusW, idW, agentW, seqW, elapsedW, costW := 2, 7, 8, 8, 8, 6
-	titleW := inner - statusW - idW - agentW - seqW - elapsedW - costW - 6 // gaps
-	if titleW < 12 {
-		titleW = 12
-	}
+func runtimeRow(r Runtime, width int) string {
+	marker := sFaint.Render("▎")
+	dot := sOk.Render("●")
+	name := lipgloss.NewStyle().Foreground(agentTone(r.Name)).Render(padR(r.Name, 8))
+	util := bar(float64(r.Busy)/float64(r.Max), 8)
+	conc := sDim.Render(fmt.Sprintf("%d/%d", r.Busy, r.Max))
+	model := sInfo.Render(padR(r.Model, 12))
+	stats := sDim.Render(fmt.Sprintf("%d tasks · %d err", r.TasksToday, r.ErrsToday))
 
-	head := sDim.Render(padR("", statusW) + " " +
-		padR("ID", idW) + " " +
-		padR("TITLE", titleW) + " " +
-		padR("RUNTIME", agentW) + " " +
-		padR("SEQ", seqW) + " " +
-		padR("ELAPSED", elapsedW) + " " +
-		padR("COST", costW))
+	left := marker + " " + dot + " " + name + " " + util + " " + conc + "  " + model
+	gap := width - lipgloss.Width(left) - lipgloss.Width(stats)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + stats
+}
+
+// panePulse renders today's throughput, error trend, and the daemon tickers.
+// This is content only the Status tab can usefully show; it replaces the
+// duplicated tasks-roster and log-tail panels.
+func panePulse(width, height int) string {
+	inner := width - 4
+	tasksTotal := sumInts(tasksPerHour)
+	errsTotal := sumInts(errsPerHour)
+
+	errTone := "dim"
+	if errsTotal > 0 {
+		errTone = "warn"
+	}
+	errSpark := sDim.Render(strings.Repeat("▁", min(inner-2, len(errsPerHour))))
+	if errsTotal > 0 {
+		errSpark = sparklineColored(errsPerHour, inner-2, sErr)
+	}
 
 	var lines []string
-	lines = append(lines, head)
-	lines = append(lines, sFaint.Render(strings.Repeat("─", inner)))
-	limit := len(tasks)
-	if limit > 6 {
-		limit = 6
-	}
-	for i, t := range tasks[:limit] {
-		lines = append(lines, taskRow(t, i == selected, statusW, idW, titleW, agentW, seqW, elapsedW, costW))
-	}
+	lines = append(lines, kv("tasks/h", fmt.Sprintf("%d today", tasksTotal), "accent", inner))
+	lines = append(lines, "  "+sparklineColored(tasksPerHour, inner-2, sAccent))
+	lines = append(lines, kv("errors/h", fmt.Sprintf("%d today", errsTotal), errTone, inner))
+	lines = append(lines, "  "+errSpark)
+	lines = append(lines, hr("tickers", inner))
+	lines = append(lines, ticker("poll       3s", daemon.PollsToday, daemon.LastPoll+" · 0 new", "accent", inner))
+	lines = append(lines, ticker("heartbeat 15s", daemon.HeartbeatsToday, daemon.LastHB+" · ok", "ok", inner))
+
 	body := strings.Join(lines, "\n")
-	return pane("tasks · in flight", "3/20 busy · 1 queued · sort: started ↓", body, width, height, false)
+	return pane("pulse · today", "live", body, width, height, false)
 }
 
-func taskRow(t Task, selected bool, statusW, idW, titleW, agentW, seqW, elapsedW, costW int) string {
-	if selected {
-		// Compose every cell — including the spaces between fields and the
-		// pane padding that follows — under a single bgSel paint. fillBg
-		// re-emits bgSel after each inner SGR reset so unstyled spaces
-		// between segments don't fall back to canvas bg and produce a strap.
-		bgOn := func(fg lipgloss.Color) lipgloss.Style {
-			return lipgloss.NewStyle().Foreground(fg).Background(bgSel)
-		}
-		seg := bgOn(accent).Render("▎") +
-			lipgloss.NewStyle().
-				Foreground(statusStyle(t.Status).GetForeground()).
-				Background(bgSel).Render(padR(statusGlyph(t.Status), statusW-1)) +
-			bgOn(fg).Render(" "+padR(t.ID, idW)) +
-			bgOn(fg).Bold(true).Render(" "+padR(truncate(t.Title, titleW), titleW)) +
-			bgOn(agentTone(t.Runtime)).Render(" "+padR(t.Runtime, agentW)) +
-			bgOn(dim).Render(" "+padR(fmt.Sprintf("seq %d", t.Seq), seqW)) +
-			bgOn(dim).Render(" "+padR(t.Started, elapsedW)) +
-			bgOn(dim).Render(" "+padR(t.Cost, costW))
-		return fillBg(seg, bgSel)
+// paneLastEvents shows the 5 most-recent system events: task transitions and
+// runtime warnings, merged. The mock seeds these directly; once a real event
+// stream lands, replace `lastEvents` with a derivation from tasks/logLines.
+func paneLastEvents(width, height int) string {
+	inner := width - 4
+	const rows = 5
+	events := lastEvents()
+	if len(events) > rows {
+		events = events[:rows]
 	}
-	status := statusStyle(t.Status).Render(padR(statusGlyph(t.Status), statusW))
-	id := sFg1.Render(padR(t.ID, idW))
-	title := sFg.Render(padR(truncate(t.Title, titleW), titleW))
-	runtime := lipgloss.NewStyle().Foreground(agentTone(t.Runtime)).
-		Render(padR(t.Runtime, agentW))
-	seq := sDim.Render(padR(fmt.Sprintf("seq %d", t.Seq), seqW))
-	elapsed := sDim.Render(padR(t.Started, elapsedW))
-	cost := sDim.Render(padR(t.Cost, costW))
-	return status + " " + id + " " + title + " " + runtime + " " + seq + " " + elapsed + " " + cost
+	var lines []string
+	for _, e := range events {
+		lines = append(lines, eventRow(e, inner))
+	}
+	// Pad to rows so the pane height matches the design even with fewer events.
+	for i := len(events); i < rows; i++ {
+		lines = append(lines, "")
+	}
+	body := strings.Join(lines, "\n")
+	return pane("last events", "merged · tasks + runtimes", body, width, height, false)
+}
+
+type event struct {
+	status string // statusGlyph key (working/waiting/done/failed) or "warn"
+	id     string // e.g. "t-1284" or "runtime.codex"
+	msg    string // human description
+	when   string // "3m 12s ago"
+}
+
+func lastEvents() []event {
+	return []event{
+		{"working", "t-1284", "started", "3m 12s ago"},
+		{"waiting", "t-1283", "waiting on user", "12s ago"},
+		{"failed", "t-1280", "failed · bundler resolver", "21m ago"},
+		{"warn", "runtime.codex", "Bundler::VersionConflict", "21m ago"},
+		{"done", "t-1281", "PR #4130 opened", "8m ago"},
+	}
+}
+
+func eventRow(e event, width int) string {
+	var glyph string
+	if e.status == "warn" {
+		glyph = sWarn.Render("⚠")
+	} else {
+		glyph = statusStyle(e.status).Render(statusGlyph(e.status))
+	}
+	id := sFg1.Render(padR(e.id, 14))
+	when := sDim.Render(e.when)
+	head := glyph + " " + id + " "
+	avail := width - lipgloss.Width(head) - lipgloss.Width(when) - 1
+	if avail < 4 {
+		avail = 4
+	}
+	msg := sDim.Render(truncate(e.msg, avail))
+	gap := width - lipgloss.Width(head) - lipgloss.Width(msg) - lipgloss.Width(when)
+	if gap < 1 {
+		gap = 1
+	}
+	return head + msg + strings.Repeat(" ", gap) + when
+}
+
+// sparklineColored renders a single-line bar sparkline in the given style.
+// Mirrors sparklineBars in view_log.go but lets the caller pick the color so
+// errors render in sErr while throughput stays sAccent.
+func sparklineColored(data []int, width int, style lipgloss.Style) string {
+	if len(data) == 0 || width < 1 {
+		return ""
+	}
+	blocks := []string{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+	max := 1
+	for _, v := range data {
+		if v > max {
+			max = v
+		}
+	}
+	stride := 1
+	if len(data) > width {
+		stride = len(data) / width
+	}
+	var b strings.Builder
+	for i := 0; i < len(data); i += stride {
+		idx := int(float64(data[i]) / float64(max) * 8)
+		if idx > 8 {
+			idx = 8
+		}
+		b.WriteString(blocks[idx])
+	}
+	return style.Render(b.String())
+}
+
+func sumInts(xs []int) int {
+	s := 0
+	for _, x := range xs {
+		s += x
+	}
+	return s
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // truncate clips s to a visible width of w, appending "…" if clipped.
@@ -235,63 +297,4 @@ func truncate(s string, w int) string {
 	}
 	b.WriteString("…\x1b[0m")
 	return b.String()
-}
-
-func paneLogTail(width, height int) string {
-	inner := width - 4
-	limit := len(logLines)
-	if limit > 8 {
-		limit = 8
-	}
-	var lines []string
-	for i, l := range logLines[:limit] {
-		lines = append(lines, logRowText(l, i == 0, inner))
-	}
-	body := strings.Join(lines, "\n")
-	return pane("daemon log · tail", "follow ●LIVE · q to detach", body, width, height, true)
-}
-
-func logRowText(l LogLine, hl bool, width int) string {
-	tW, lvlW, srcW := 8, 6, 16
-	msgW := width - tW - lvlW - srcW - 3
-	if msgW < 8 {
-		msgW = 8
-	}
-
-	tStyled := sDim.Render(padR(l.T, tW))
-	lvlStyled := levelTag(l.Lvl, lvlW)
-	srcStyled := sInfo.Render(padR(l.Src, srcW))
-	msgStyled := sFg.Render(truncate(l.Msg, msgW))
-	if l.Src == "poll" || l.Src == "heartbeat" {
-		srcStyled = sFaint.Render(padR(l.Src, srcW))
-		msgStyled = sDim.Render(truncate(l.Msg, msgW))
-	}
-	if l.Lvl == "warn" {
-		msgStyled = sWarn.Render(truncate(l.Msg, msgW))
-	}
-	if l.Lvl == "error" {
-		msgStyled = sErr.Render(truncate(l.Msg, msgW))
-	}
-	row := tStyled + " " + lvlStyled + " " + srcStyled + " " + msgStyled
-	if hl {
-		row = sAccent.Render("▎") + row
-	} else {
-		row = " " + row
-	}
-	return row
-}
-
-func levelTag(lvl string, w int) string {
-	pad := padR(strings.ToUpper(lvl), w)
-	switch lvl {
-	case "trace":
-		return sFaint.Render(pad)
-	case "info":
-		return lipgloss.NewStyle().Foreground(info).Background(bg2).Render(pad)
-	case "warn":
-		return lipgloss.NewStyle().Foreground(warn).Background(bg2).Render(pad)
-	case "error":
-		return lipgloss.NewStyle().Foreground(errCol).Background(bg2).Render(pad)
-	}
-	return sDim.Render(pad)
 }

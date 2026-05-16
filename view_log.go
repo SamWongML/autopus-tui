@@ -95,6 +95,51 @@ func paneLogSummary(width, height int) string {
 	return pane("summary · today", "", body, width, height, false)
 }
 
+func logRowText(l LogLine, hl bool, width int) string {
+	tW, lvlW, srcW := 8, 6, 16
+	msgW := width - tW - lvlW - srcW - 3
+	if msgW < 8 {
+		msgW = 8
+	}
+
+	tStyled := sDim.Render(padR(l.T, tW))
+	lvlStyled := levelTag(l.Lvl, lvlW)
+	srcStyled := sInfo.Render(padR(l.Src, srcW))
+	msgStyled := sFg.Render(truncate(l.Msg, msgW))
+	if l.Src == "poll" || l.Src == "heartbeat" {
+		srcStyled = sFaint.Render(padR(l.Src, srcW))
+		msgStyled = sDim.Render(truncate(l.Msg, msgW))
+	}
+	if l.Lvl == "warn" {
+		msgStyled = sWarn.Render(truncate(l.Msg, msgW))
+	}
+	if l.Lvl == "error" {
+		msgStyled = sErr.Render(truncate(l.Msg, msgW))
+	}
+	row := tStyled + " " + lvlStyled + " " + srcStyled + " " + msgStyled
+	if hl {
+		row = sAccent.Render("▎") + row
+	} else {
+		row = " " + row
+	}
+	return row
+}
+
+func levelTag(lvl string, w int) string {
+	pad := padR(strings.ToUpper(lvl), w)
+	switch lvl {
+	case "trace":
+		return sFaint.Render(pad)
+	case "info":
+		return lipgloss.NewStyle().Foreground(info).Background(bg2).Render(pad)
+	case "warn":
+		return lipgloss.NewStyle().Foreground(warn).Background(bg2).Render(pad)
+	case "error":
+		return lipgloss.NewStyle().Foreground(errCol).Background(bg2).Render(pad)
+	}
+	return sDim.Render(pad)
+}
+
 // sparklineBars renders a single-line bar sparkline using block characters.
 func sparklineBars(data []int, width int) string {
 	if len(data) == 0 || width < 1 {
