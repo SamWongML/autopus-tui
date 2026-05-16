@@ -28,7 +28,7 @@ Do not load other phases. Do not load this PLAN.md. Each phase is self-contained
 | P0  | Visual primitives                    | k, l, m\* | —         | small | done    |
 | P1  | Context-sensitive chrome             | d, i    | —           | med   | done    |
 | P2  | Status tab: pulse + utilization      | a, e    | P0          | med   | done    |
-| P3  | Tasks tab: state groups + PR dots    | f, m    | P0          | med   | pending |
+| P3  | Tasks tab: state groups + PR dots    | f, m    | P0          | med   | done    |
 | P4  | Unified detail pane + peek overlay   | c, h    | —           | large | pending |
 | P5  | Profiles → switcher                  | b       | —           | med   | pending |
 | P6  | Log Summary toggle                   | j       | —           | small | pending |

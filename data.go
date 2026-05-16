@@ -38,21 +38,23 @@ var runtimes = []Runtime{
 type Task struct {
 	ID, Status, Runtime, WS, Issue, Started, Last, Title, Cost string
 	Seq                                                        int
+	PRState                                                    string // "", "waiting", "passed", "merged", "draft"
+	PRNum                                                      int
 }
 
 var tasks = []Task{
 	{"t-1284", "working", "claude", "blackhole-os", "#4127", "3m 12s", "editing app/models/webhook_event.rb",
-		"refactor billing webhook → idempotency keys", "$1.42", 84},
+		"refactor billing webhook → idempotency keys", "$1.42", 84, "", 0},
 	{"t-1283", "waiting", "claude", "blackhole-os", "#4126", "12s", "awaiting confirm: drop unique index?",
-		"migrate analytics events to ClickHouse", "$0.41", 12},
+		"migrate analytics events to ClickHouse", "$0.41", 12, "", 0},
 	{"t-1282", "working", "codex", "blackhole-os", "#4118", "1m 04s", "rspec iteration 27 / 40",
-		"investigate flaky PaymentSheet integration", "$0.18", 71},
+		"investigate flaky PaymentSheet integration", "$0.18", 71, "", 0},
 	{"t-1281", "done", "claude", "blackhole-os", "#4115", "8m", "PR #4130 opened",
-		"generate openapi client for billing-v2", "$0.92", 142},
+		"generate openapi client for billing-v2", "$0.92", 142, "waiting", 4130},
 	{"t-1280", "failed", "codex", "blackhole-os", "#4114", "21m", "exit 1: bundler resolver",
-		"update stripe sdk to 17.0.0", "$0.05", 23},
+		"update stripe sdk to 17.0.0", "$0.05", 23, "", 0},
 	{"t-1279", "queued", "claude", "blackhole-os", "#4113", "—", "waiting on runtime claude (3/3)",
-		"implement webhook retry exponential backoff", "—", 0},
+		"implement webhook retry exponential backoff", "—", 0, "", 0},
 }
 
 type Msg struct {

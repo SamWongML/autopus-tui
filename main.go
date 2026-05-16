@@ -86,7 +86,15 @@ func (m *model) moveSelection(delta int) {
 	case 0:
 		m.selTask = clamp(m.selTask+delta, 0, minInt(5, len(tasks)-1))
 	case 2:
-		m.selTask = clamp(m.selTask+delta, 0, len(tasks)-1)
+		order := visualTaskOrder()
+		pos := 0
+		for i, idx := range order {
+			if idx == m.selTask {
+				pos = i
+				break
+			}
+		}
+		m.selTask = order[clamp(pos+delta, 0, len(order)-1)]
 	case 4:
 		m.selCfg = clamp(m.selCfg+delta, 0, len(cfgDaemon)-1)
 	case 5:
@@ -96,8 +104,11 @@ func (m *model) moveSelection(delta int) {
 
 func (m *model) setSelection(v int) {
 	switch m.tab {
-	case 0, 2:
+	case 0:
 		m.selTask = clamp(v, 0, len(tasks)-1)
+	case 2:
+		order := visualTaskOrder()
+		m.selTask = order[clamp(v, 0, len(order)-1)]
 	case 4:
 		m.selCfg = clamp(v, 0, len(cfgDaemon)-1)
 	case 5:
@@ -214,7 +225,12 @@ func (m model) breadcrumb() string {
 			sDim.Render(" · ws ") + sFg1.Render(t.WS) +
 			sDim.Render(" · seq ") + sFg1.Render(fmt.Sprintf("%d", t.Seq))
 	case 2:
-		return sDim.Render("tasks · in-flight · sort started↓")
+		_, by := groupedTasks()
+		return sDim.Render("tasks · ") +
+			sFg1.Render(fmt.Sprintf("%d", len(by["Needs input"]))) +
+			sDim.Render(" needs input · ") +
+			sFg1.Render(fmt.Sprintf("%d", len(by["Working"]))) +
+			sDim.Render(" working")
 	case 3:
 		return sDim.Render("log · level=info · follow ") + sOk.Render("●")
 	case 4:
