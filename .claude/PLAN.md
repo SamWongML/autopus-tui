@@ -11,7 +11,7 @@ something is learned. Never delete Rules entries.
 | Phase | Name                              | Status | Branch                  |
 |-------|-----------------------------------|--------|-------------------------|
 | A     | De-duplicate widgets (mechanical) | `[x]`  | `refactor/dedup`        |
-| B     | Adopt Bubbles library             | `[ ]`  | `feat/bubbles`          |
+| B     | Adopt Bubbles library             | `[x]`  | `feat/bubbles`          |
 | C     | KPI dashboard Status tab          | `[ ]`  | `feat/kpi-dashboard`    |
 | D     | Wire real `/health` data source   | `[ ]`  | `feat/health-wire`      |
 | E     | Focus / scroll model              | `[ ]`  | `feat/focus-scroll`     |
@@ -42,12 +42,12 @@ come after A so the new `internal/source/` package isn't ported twice. F is last
 > **Goal:** replace hand-rolled list/input/help with `charmbracelet/bubbles`. Another ~−400 LOC, free scroll/animation/focus.
 > **Done when:** all 4 widgets adopted, keymap unchanged from user perspective, goldens regenerated.
 
-- [ ] B.1 `bubbles/viewport` for Run messages pane and Log tab scroll region; map `j/k/ctrl-d/ctrl-u/g/G` to viewport
-- [ ] B.2 `bubbles/textinput` for the command bar (`:` and `/` prompts in `chrome.go`)
-- [ ] B.3 `bubbles/help` for the footer; load keymap from a single `keys.go`
-- [ ] B.4 `bubbles/table` for the Tasks tab; configure columns from `taskTable` mode=full
-- [ ] B.5 `bubbles/spinner` for live indicators on status pills (`● online`, in-flight tasks)
-- [ ] B.6 Regenerate goldens; visual review at 3 sizes
+- [x] B.1 `bubbles/viewport` for Run messages pane and Log tab scroll region; map `j/k/ctrl-d/ctrl-u/g/G` to viewport
+- [x] B.2 `bubbles/textinput` for the command bar (`:` and `/` prompts in `chrome.go`)
+- [x] B.3 `bubbles/help` for the footer; load keymap from a single `keys.go`
+- [x] B.4 `bubbles/table` for the Tasks tab; configure columns from `taskTable` mode=full
+- [x] B.5 `bubbles/spinner` for live indicators on status pills (`● online`, in-flight tasks)
+- [x] B.6 Regenerate goldens; visual review at 3 sizes
 
 ## Phase C — KPI dashboard Status tab
 
@@ -123,6 +123,16 @@ come after A so the new `internal/source/` package isn't ported twice. F is last
 - Daemon log path: `~/.multica/daemon.log`
 - Daemon socket: `~/.multica/daemon.sock` (currently unused by mtop — `/health` HTTP is the integration point)
 - Mtop debug screenshot: `MTOP_DUMP_PROFILE=1` already detected by current code
+- Phase B LOC delta (2026-05-16): code went **+353 lines** net (+174 in 5 existing files, +179 across new `keys.go`/`spinner.go`/`widget_tasks_table.go`). The −400 LOC target was optimistic for the same reason as A: Bubbles widgets save behavior code (free scroll, blink, cursor) but need glue code (resize wiring, key routing, factories, per-widget config). The wins are functional, not LOC: viewports actually scroll, the cmd bar accepts text, spinners animate, the table cursor navigates.
+- Phase B golden diffs (intentional, captured in `testdata/{80x24,120x40,200x60}.txt`):
+  - `liveSpin` (bubbles/spinner Pulse) replaces the static `●` in the tab-bar daemon-online dot and the Run-tab LIVE pill. Dump captures frame 0 = `█`.
+  - Tasks-tab roster is now `bubbles/table`: header is uppercased and dim (no bold), status column is the glyph alone (no per-row color — bubbles/table runs `runewidth.Truncate` on raw cell values, which corrupts pre-rendered ANSI), selected row uses a solid `bgSel` background instead of the accent `▎` bar.
+  - Footer keycaps now come from `bubbles/help.ShortHelpView`; literal padding spaces inside `key.WithHelp` keep the pre-Phase-B pill-shaped look since `Inline(true)` strips `style.Padding`.
+  - Command bar prompt is a `bubbles/textinput.View()` (always renders a 1-cell caret/cursor instead of the static `█` placeholder used pre-B).
+- Bubbles table styling caveat: `table.Model.renderRow` calls `runewidth.Truncate` on the raw row value *before* applying `Styles.Cell`/`Styles.Selected`. Pre-styled cells get their ANSI sequences width-counted and split mid-CSI. Per-row colors are therefore not viable inside `bubbles/table`; either pick column-uniform `Styles.Cell.Foreground(...)` or accept plain text. Selected styling can preserve underlying foregrounds by setting only `Background(bgSel)` on `Styles.Selected` (default `DefaultStyles().Selected` paints a foreground that erases content tone — override it).
+- Bubbles table widths: `Styles.Cell.Padding(...)` is *not* Inline-stripped (the inner `lipgloss.NewStyle().Width().MaxWidth().Inline(true)` only wraps the value; `Cell` wraps outside that). Padding therefore widens each column by 2; easier to bake a trailing space into the cell value (or column title) so column gaps don't break `SetWidth` math.
+- Spinner frame in dumps: `liveSpin` is a package-level `spinner.Model` initialized in `spinner.go:init()`. In `--dump`, no `Update` ever runs, so `View()` always returns frame 0. That makes the snapshot deterministic; a different spinner.Style is needed if frame 0 should not be `█` (bubbles/spinner Pulse).
+- Tasks-tab key routing: `j/k` on tab 2 forward to `m.tasksTbl.Update(msg)` rather than `moveSelection(±1)`; `g`/`G` call `GotoTop`/`GotoBottom`. Selection on Status tab still uses `selTask` against the manual compact `taskTable`.
 
 ## Compact Instructions
 

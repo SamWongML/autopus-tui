@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
 
-func renderRun(width, height int) string {
+func renderRun(width, height int, vp viewport.Model) string {
 	headH := 3
-	body := runBody(width, height-headH)
+	body := runBody(width, height-headH, vp)
 	return joinV(runHeader(width), body)
 }
 
@@ -19,8 +20,11 @@ func runHeader(width int) string {
 	agent := agentChip("claude")
 	meta := sDim.Render("ws ") + sFg1.Render("blackhole-os") + "  " +
 		sDim.Render("issue ") + sFg1.Render("#4127")
-	live := lipgloss.NewStyle().Foreground(ok).Background(bg2).
-		Padding(0, 1).Render("● LIVE")
+	// LIVE pill: animated dot + label. The spinner View() carries its own
+	// fg color (sOk), so the surrounding pill style only paints the bg.
+	pill := lipgloss.NewStyle().Background(bg2).Padding(0, 1)
+	live := pill.Render(liveSpin.View() + " " +
+		lipgloss.NewStyle().Foreground(ok).Render("LIVE"))
 	state := sWarn.Render("! waiting")
 
 	left := id + "  " + title + "  " + agent + "  " + meta
@@ -43,7 +47,7 @@ func runHeader(width int) string {
 		Render(row)
 }
 
-func runBody(width, height int) string {
+func runBody(width, height int, vp viewport.Model) string {
 	gap := 2
 	sidebarW := 38
 	if sidebarW > width/3 {
@@ -51,8 +55,9 @@ func runBody(width, height int) string {
 	}
 	msgsW := width - sidebarW - gap
 
-	msgsBody := renderMessages(msgsW - 4)
-	messagesPane := pane("messages · run-messages t-1284 --since 0", "9 of 86 · filter: all", msgsBody, msgsW, height, false)
+	// vp.View() returns the visible window already wrapped/sized in
+	// resizeViewports(); pane() paints the chrome and border around it.
+	messagesPane := pane("messages · run-messages t-1284 --since 0", "9 of 86 · filter: all", vp.View(), msgsW, height, false)
 
 	sidebarBody := renderTaskSidebar(sidebarW - 4)
 	sidebarPane := pane("task", "t-1284", sidebarBody, sidebarW, height, false)

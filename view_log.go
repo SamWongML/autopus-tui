@@ -2,9 +2,11 @@ package main
 
 import (
 	"strings"
+
+	"github.com/charmbracelet/bubbles/viewport"
 )
 
-func renderLog(width, height int) string {
+func renderLog(width, height int, vp viewport.Model) string {
 	filter := renderLogFilter(width)
 	bodyH := height - 3
 	if bodyH < 6 {
@@ -17,7 +19,7 @@ func renderLog(width, height int) string {
 	}
 	leftW := width - rightW - gap
 
-	left := paneLogTable(leftW, bodyH)
+	left := paneLogTable(leftW, bodyH, vp)
 	right := paneLogSummary(rightW, bodyH)
 	body := joinH(left, bgPad(gap), right)
 	return joinV(filter, body)
@@ -35,11 +37,10 @@ func renderLogFilter(width int) string {
 	return pageHeader(width, left, right)
 }
 
-func paneLogTable(width, height int) string {
-	// Pretend we have a lot of log lines by tripling the sample, like the design.
-	tripled := append(append(append([]LogLine{}, logLines...), logLines...), logLines[:4]...)
-	body := logTable(tripled, width, height, logFull)
-	return pane(daemon.Log, "34,182 lines · 12.4 MB · rotating @ 50 MB", body, width, height, false)
+func paneLogTable(width, height int, vp viewport.Model) string {
+	// Body comes pre-rendered from the viewport (see resizeViewports() in
+	// main.go). pane() paints chrome around the visible scroll window.
+	return pane(daemon.Log, "34,182 lines · 12.4 MB · rotating @ 50 MB", vp.View(), width, height, false)
 }
 
 func paneLogSummary(width, height int) string {

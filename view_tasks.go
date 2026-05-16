@@ -3,10 +3,11 @@ package main
 import (
 	"fmt"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 )
 
-func renderTasks(width, height int, selected int) string {
+func renderTasks(width, height int, tbl table.Model) string {
 	filterRow := renderFilterBar(width)
 	bodyH := height - 3
 	if bodyH < 6 {
@@ -19,7 +20,7 @@ func renderTasks(width, height int, selected int) string {
 	}
 	leftW := width - rightW - gap
 
-	left := paneTasksTable(leftW, bodyH, selected)
+	left := paneTasksTable(leftW, bodyH, tbl)
 	right := paneTaskPreview(rightW, bodyH)
 	body := joinH(left, bgPad(gap), right)
 
@@ -37,9 +38,8 @@ func renderFilterBar(width int) string {
 	return pageHeader(width, left, right)
 }
 
-func paneTasksTable(width, height int, selected int) string {
-	body := taskTable(tasks, width, height, tableFull, selected)
-	return pane(fmt.Sprintf("%d tasks", len(tasks)), "", body, width, height, false)
+func paneTasksTable(width, height int, tbl table.Model) string {
+	return pane(fmt.Sprintf("%d tasks", len(tasks)), "", tbl.View(), width, height, false)
 }
 
 func paneTaskPreview(width, height int) string {

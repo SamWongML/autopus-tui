@@ -5,6 +5,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -515,7 +518,7 @@ func tabBar(active int, width int) string {
 		}
 	}
 	left := strings.Join(parts, "  ")
-	meta := sDim.Render("daemon ") + sOk.Render("●") + sDim.Render(" online · profile ") +
+	meta := sDim.Render("daemon ") + liveSpin.View() + sDim.Render(" online · profile ") +
 		sFg1.Render(daemon.Profile) + sDim.Render(fmt.Sprintf(" · pid %d · %s", daemon.PID, daemon.Uptime))
 	gap := width - lipgloss.Width(left) - lipgloss.Width(meta) - 2
 	if gap < 1 {
@@ -532,26 +535,18 @@ func tabBar(active int, width int) string {
 		Render(row)
 }
 
-func footer(items []KeyHint, width int) string {
-	var parts []string
-	for _, it := range items {
-		k := lipgloss.NewStyle().
-			Foreground(fg1).
-			Background(bg2).
-			Padding(0, 1).
-			Render(it.K)
-		parts = append(parts, k+" "+sDim.Render(it.L))
-	}
-	left := strings.Join(parts, "   ")
-	right := lipgloss.NewStyle().Foreground(fg1).Background(bg2).Padding(0, 1).Render("?") +
-		" " + sDim.Render("help   ") +
-		lipgloss.NewStyle().Foreground(fg1).Background(bg2).Padding(0, 1).Render("q") +
-		" " + sDim.Render("quit")
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+// footer renders the bottom hint strip via bubbles/help. `left` carries the
+// per-tab bindings; the universal `? help   q quit` block is rendered as a
+// separate ShortHelpView and stretch-justified against the right edge so it
+// hugs the right padding regardless of `left`'s rendered width.
+func footer(h help.Model, left tabKeyMap, width int) string {
+	leftStr := h.ShortHelpView(left.ShortHelp())
+	rightStr := h.ShortHelpView([]key.Binding{helpKey, helpQuit})
+	gap := width - lipgloss.Width(leftStr) - lipgloss.Width(rightStr) - 2
 	if gap < 1 {
 		gap = 1
 	}
-	row := fillBg(left+strings.Repeat(" ", gap)+right, bg1)
+	row := fillBg(leftStr+strings.Repeat(" ", gap)+rightStr, bg1)
 	return lipgloss.NewStyle().
 		Background(bg1).
 		Width(width).
@@ -562,10 +557,25 @@ func footer(items []KeyHint, width int) string {
 		Render(row)
 }
 
-type KeyHint struct{ K, L string }
+// footerHelp returns a help.Model styled to match mtop's footer chrome:
+// keycap pills (fg1 on bg2 with 1-cell horizontal padding), dim descs, and a
+// 3-space inter-item separator. Held in the root model so help.Width can be
+// updated on WindowSizeMsg for truncation.
+func footerHelp() help.Model {
+	h := help.New()
+	h.ShortSeparator = "   "
+	h.Styles.ShortKey = lipgloss.NewStyle().Foreground(fg1).Background(bg2).Padding(0, 1)
+	h.Styles.ShortDesc = sDim
+	h.Styles.ShortSeparator = lipgloss.NewStyle().Background(bg1)
+	return h
+}
 
-// cmdBar renders the bottom `:` / `/` / reply prompt.
-func cmdBar(mode, placeholder, value string, width int) string {
+// cmdBar renders the bottom `:` / `/` / reply prompt. The `mode` decides the
+// keycap label and arrow glyph; `placeholder` is the per-tab hint shown when
+// the input has no value; `ti` carries the live input state (value, cursor,
+// focus). The caller mutates ti.Placeholder/Width by value — this function
+// receives ti by value so its tweaks don't leak.
+func cmdBar(mode, placeholder string, ti textinput.Model, width int) string {
 	var modeBlock string
 	var arrow string
 	switch mode {
@@ -582,15 +592,15 @@ func cmdBar(mode, placeholder, value string, width int) string {
 		modeBlock = lipgloss.NewStyle().Foreground(fg1).Background(bg2).Padding(0, 1).Render(mode)
 		arrow = sAccent.Render(">")
 	}
-	var v string
-	if value != "" {
-		v = sFg.Render(value)
-	} else {
-		v = sDim.Render(placeholder)
+	ti.Placeholder = placeholder
+	// Used cells: outer pad (1) + modeBlock + " " + arrow + " " + trailing pad (1).
+	used := lipgloss.Width(modeBlock) + lipgloss.Width(arrow) + 4
+	tiW := width - used
+	if tiW < 8 {
+		tiW = 8
 	}
-	caret := sAccent.Render("█")
-	row := modeBlock + " " + arrow + " " + v + " " + caret
-	// Truncate to width.
+	ti.Width = tiW
+	row := modeBlock + " " + arrow + " " + ti.View()
 	if lipgloss.Width(row) > width-2 {
 		row = lipgloss.NewStyle().MaxWidth(width - 2).Render(row)
 	}
