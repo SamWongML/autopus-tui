@@ -1,0 +1,2478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>multica · agent daemon TUI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1a1814;
+    --bg-2: #15130f;
+    --surface: #211e1a;
+    --surface-2: #2a2620;
+    --surface-3: #322d26;
+    --border: #3a342c;
+    --border-strong: #4a4238;
+    --text: #ebe5d8;
+    --text-dim: #a39885;
+    --text-faint: #756c5d;
+    --text-mute: #574f43;
+    --accent: #d97757;
+    --accent-dim: #ab4929;
+    --accent-faint: rgba(217, 119, 87, 0.13);
+    --ok: #8aa67a;
+    --warn: #d4a857;
+    --err: #c46b5e;
+    --info: #6f93b8;
+    --violet: #9b87b8;
+
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  }
+  html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; height: 100%; font-family: var(--mono); }
+  body { overflow: hidden; }
+  * { box-sizing: border-box; }
+  #root { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+
+  * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+  *::-webkit-scrollbar         { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track   { background: transparent; }
+  *::-webkit-scrollbar-thumb   { background: var(--border-strong); border-radius: 0; border: 2px solid transparent; background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--text-mute); border: 2px solid transparent; background-clip: content-box; }
+  *::-webkit-scrollbar-corner  { background: transparent; }
+
+  @keyframes tui-blink { 50% { opacity: 0; } }
+  .tui-caret { animation: tui-blink 1.1s steps(1) infinite; }
+
+  .tui-row:hover       { background: var(--surface); }
+  .tui-row.sel         { background: var(--surface-2); }
+  .tui-row.sel-accent  { background: var(--accent-faint); }
+
+  .tui-tab:hover      { color: var(--text); }
+  .tui-tab.active     { color: var(--accent); }
+  .tui-tab.active::after {
+    content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px;
+    background: var(--accent);
+  }
+
+  .tui-num { font-variant-numeric: tabular-nums; }
+
+  button:focus, input:focus { outline: none; }
+
+  #root:empty::after {
+    content: "loading multica daemon UI…";
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+    margin: auto;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * PRIMITIVES
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const STATE_META = {
+  needs_input: { glyph: "◆", label: "needs input", color: "var(--warn)",       sort: 0 },
+  working:     { glyph: "◐", label: "working",     color: "var(--info)",       sort: 1, spinner: true },
+  running:     { glyph: "●", label: "running",     color: "var(--ok)",         sort: 2 },
+  paused:      { glyph: "‖", label: "paused",      color: "var(--text-dim)",   sort: 3 },
+  idle:        { glyph: "○", label: "idle",        color: "var(--text-faint)", sort: 4 },
+  completed:   { glyph: "✓", label: "completed",   color: "var(--ok)",         sort: 5 },
+  failed:      { glyph: "✕", label: "failed",      color: "var(--err)",        sort: 6 },
+};
+
+const PRIORITY_META = {
+  urgent: { glyph: "◆", color: "var(--err)" },
+  high:   { glyph: "◆", color: "var(--warn)" },
+  medium: { glyph: "◇", color: "var(--text-dim)" },
+  low:    { glyph: "◇", color: "var(--text-faint)" },
+};
+
+const STATUS_META = {
+  backlog:     { color: "var(--text-faint)" },
+  todo:        { color: "var(--text-dim)" },
+  in_progress: { color: "var(--info)" },
+  in_review:   { color: "var(--violet)" },
+  done:        { color: "var(--ok)" },
+  blocked:     { color: "var(--err)" },
+  cancelled:   { color: "var(--text-faint)" },
+};
+
+const LOG_LEVEL_META = {
+  INFO:  { color: "var(--text-dim)" },
+  DEBUG: { color: "var(--text-faint)" },
+  WARN:  { color: "var(--warn)" },
+  ERROR: { color: "var(--err)" },
+};
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function useSpinnerFrame(ms = 90) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI(x => (x + 1) % SPINNER_FRAMES.length), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return SPINNER_FRAMES[i];
+}
+
+function Spinner({ color = "var(--info)" }) {
+  const f = useSpinnerFrame();
+  return <span style={{ color, display: "inline-block", width: 14, textAlign: "center", fontSize: 12.5, lineHeight: 1 }}>{f}</span>;
+}
+
+function StateGlyph({ state }) {
+  const meta = STATE_META[state] || STATE_META.idle;
+  if (meta.spinner) return <Spinner color={meta.color} />;
+  return (
+    <span style={{
+      color: meta.color, display: "inline-block", width: 14, textAlign: "center",
+      fontSize: 12.5, lineHeight: 1, fontFamily: "var(--mono)",
+    }}>{meta.glyph}</span>
+  );
+}
+
+function Dot({ color = "var(--ok)", size = 7 }) {
+  return (
+    <span style={{
+      display: "inline-block", width: size, height: size, borderRadius: 99,
+      background: color, flexShrink: 0,
+    }} />
+  );
+}
+
+function StatePill({ state }) {
+  const meta = STATE_META[state] || STATE_META.idle;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 6,
+      padding: "1px 7px 1px 5px",
+      border: `1px solid ${meta.color}`, color: meta.color,
+      borderRadius: 2, fontSize: 11, letterSpacing: "0.04em",
+      textTransform: "uppercase", background: "transparent", lineHeight: 1.5,
+    }}>
+      <StateGlyph state={state} />
+      {meta.label}
+    </span>
+  );
+}
+
+function Panel({ title, right, children, pad = 12, style, accent, focused, scrollable, contentRef, onClick, headerless }) {
+  const borderColor = accent ? "var(--accent-dim)" : focused ? "var(--accent)" : "var(--border)";
+  return (
+    <div onClick={onClick} style={{
+      border: `1px solid ${borderColor}`, background: "var(--bg)",
+      display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
+      transition: "border-color 90ms linear", ...style,
+    }}>
+      {!headerless && (title || right) && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "5px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0,
+          background: focused ? "var(--accent-faint)" : "transparent", gap: 12,
+        }}>
+          <span style={{
+            fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase",
+            color: accent || focused ? "var(--accent)" : "var(--text-dim)", fontWeight: 500,
+          }}>{title}</span>
+          {right ? <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{right}</span> : null}
+        </div>
+      )}
+      <div ref={contentRef}
+        style={{ padding: pad, flex: 1, minHeight: 0, overflow: scrollable ? "auto" : "hidden" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Key({ k, label, onClick, accent }) {
+  return (
+    <span onClick={onClick} style={{
+      display: "inline-flex", alignItems: "center", gap: 6,
+      cursor: onClick ? "pointer" : "default", userSelect: "none",
+    }}>
+      <span style={{
+        display: "inline-block", padding: "0 6px",
+        background: accent ? "var(--accent-faint)" : "var(--surface-2)",
+        border: `1px solid ${accent ? "var(--accent-dim)" : "var(--border)"}`,
+        color: accent ? "var(--accent)" : "var(--text-dim)",
+        fontSize: 10.5, lineHeight: "16px", height: 16, borderRadius: 2,
+        minWidth: 16, textAlign: "center", fontWeight: 600,
+      }}>{k}</span>
+      <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{label}</span>
+    </span>
+  );
+}
+
+function Spark({ values, width = 28, color = "var(--accent)" }) {
+  const chars = "▁▂▃▄▅▆▇█";
+  const max = Math.max(...values, 1);
+  const last = values.slice(-width);
+  return (
+    <span style={{ color, letterSpacing: -1, whiteSpace: "pre" }}>
+      {last.map(v => chars[Math.min(7, Math.floor((v / max) * 7))]).join("")}
+    </span>
+  );
+}
+
+function Bar({ pct, width = 18, color = "var(--accent)", track = "var(--surface-3)" }) {
+  const filled = Math.max(0, Math.min(width, Math.round((pct / 100) * width)));
+  return (
+    <span style={{ whiteSpace: "pre", letterSpacing: -1 }}>
+      <span style={{ color }}>{"█".repeat(filled)}</span>
+      <span style={{ color: track }}>{"░".repeat(width - filled)}</span>
+    </span>
+  );
+}
+
+function useClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
+function BrandMark() {
+  return (
+    <span style={{
+      fontFamily: "var(--mono)", letterSpacing: "0.04em", fontWeight: 600,
+      display: "inline-flex", alignItems: "center", gap: 8,
+    }}>
+      <span style={{ color: "var(--accent)" }}>◆</span>
+      <span style={{ color: "var(--text)" }}>multica</span>
+      <span style={{ color: "var(--text-faint)", marginLeft: 4, fontWeight: 400 }}>· agent daemon</span>
+    </span>
+  );
+}
+
+function KV({ k, v, c }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px dashed var(--border)" }}>
+      <span style={{ color: "var(--text-faint)" }}>{k}</span>
+      <span style={{ color: c || "var(--text)" }} className="tui-num">{v}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DATA — synthetic fixtures
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const SESSIONS = [
+  {
+    id: "ses_7Hq", issue: "MUL-318",
+    title: "Refactor task scheduler to use cooperative cancellation",
+    state: "needs_input", agent: "claude", model: "sonnet-4.5",
+    workspace: "multica-core", branch: "feat/coop-cancel",
+    started: "16:02", elapsed: "00:39:14",
+    tokensIn: 84_120, tokensOut: 12_840, cost: "$1.34",
+    question: "Two valid approaches surfaced. Should I (a) refactor the dispatcher first, then teardown — or (b) add the context.CancelCause shim first and migrate per-runtime? (a) is cleaner; (b) ships faster.",
+    activity: "asked a question · waiting 02:11",
+    log: [
+      ["tool", "Read", "internal/daemon/scheduler.go"],
+      ["text", "thinking", "The current ctx is propagated through three layers without a cancel reason…"],
+      ["tool", "Grep", "ctx.Err in 14 files"],
+      ["tool", "Edit", "internal/daemon/runtime.go (+38 −12)"],
+      ["text", "thinking", "I should confirm with the user before touching the dispatcher signature — both approaches viable."],
+      ["ask", "question", "Two valid approaches surfaced…"],
+    ],
+  },
+  {
+    id: "ses_2Kc", issue: "MUL-322",
+    title: "Investigate flaky e2e test in heartbeat integration",
+    state: "working", agent: "claude", model: "sonnet-4.5",
+    workspace: "multica-core", branch: "fix/heartbeat-flake",
+    started: "16:11", elapsed: "00:30:48",
+    tokensIn: 41_220, tokensOut: 6_140, cost: "$0.62",
+    activity: "running tests · ./e2e/heartbeat (4/12)",
+    log: [
+      ["tool", "Read", "e2e/heartbeat_test.go"],
+      ["tool", "Bash", "go test ./e2e/heartbeat -run TestRecover -count=20"],
+      ["text", "thinking", "Got 3/20 failures. Looks like a race on the deregister path…"],
+      ["tool", "Bash", "go test ./e2e/heartbeat -race -count=20"],
+    ],
+  },
+  {
+    id: "ses_9Lp", issue: "MUL-310",
+    title: "Add disk quota enforcement per workspace",
+    state: "running", agent: "codex", model: "gpt-5.1",
+    workspace: "multica-core", branch: "feat/disk-quota",
+    started: "15:18", elapsed: "01:24:02",
+    tokensIn: 162_400, tokensOut: 24_810, cost: "$2.18",
+    activity: "writing migration · 011_add_quota.sql",
+  },
+  {
+    id: "ses_Q3d", issue: "MUL-301",
+    title: "Wire OTLP exporter behind feature flag",
+    state: "needs_input", agent: "claude", model: "opus-4.1",
+    workspace: "multica-platform", branch: "feat/otlp",
+    started: "15:54", elapsed: "00:48:09",
+    tokensIn: 58_900, tokensOut: 9_440, cost: "$1.88",
+    question: "Permission requested: write to /etc/multica/otlp.yaml — outside the workspace sandbox. Allow once / always / deny?",
+    activity: "permission prompt · 00:31",
+  },
+  {
+    id: "ses_Z1f", issue: "MUL-298",
+    title: "Update docs: agent runtime configuration",
+    state: "completed", agent: "claude", model: "sonnet-4.5",
+    workspace: "multica-docs", branch: "docs/runtime",
+    started: "14:30", elapsed: "00:42:11",
+    tokensIn: 28_400, tokensOut: 18_220, cost: "$0.78",
+    activity: "PR opened · multica-ai/multica#1284",
+  },
+  {
+    id: "ses_M4g", issue: "MUL-289",
+    title: "Investigate memory leak in long-running runs",
+    state: "failed", agent: "codex", model: "gpt-5.1",
+    workspace: "multica-core", branch: "fix/mem-leak",
+    started: "13:11", elapsed: "00:18:42",
+    tokensIn: 12_400, tokensOut: 1_980, cost: "$0.14",
+    activity: "agent timeout · 18m without progress",
+  },
+  {
+    id: "ses_T8s", issue: "MUL-330",
+    title: "Sketch: cooperative cache eviction for runtime",
+    state: "idle", agent: "claude", model: "haiku-4.5",
+    workspace: "multica-core", branch: "exp/cache-evict",
+    started: "12:00", elapsed: "00:00:00",
+    tokensIn: 0, tokensOut: 0, cost: "$0.00",
+    activity: "queued · waiting for runtime slot",
+  },
+  {
+    id: "ses_R5n", issue: "MUL-275",
+    title: "Render flame graph in dashboard",
+    state: "paused", agent: "claude", model: "sonnet-4.5",
+    workspace: "multica-platform", branch: "feat/flamegraph",
+    started: "11:24", elapsed: "02:08:30",
+    tokensIn: 96_440, tokensOut: 11_300, cost: "$1.42",
+    activity: "backgrounded by you · 01:14:08 ago",
+  },
+];
+
+const ISSUES = [
+  { id: "MUL-318", title: "Refactor task scheduler to use cooperative cancellation", status: "in_progress", priority: "high",   assignee: "Lambda (claude)", workspace: "multica-core",    updated: "2m" },
+  { id: "MUL-322", title: "Investigate flaky e2e test in heartbeat integration",     status: "in_progress", priority: "urgent", assignee: "Sigma (claude)",  workspace: "multica-core",    updated: "5m" },
+  { id: "MUL-310", title: "Add disk quota enforcement per workspace",                status: "in_progress", priority: "high",   assignee: "Theta (codex)",   workspace: "multica-core",    updated: "12m" },
+  { id: "MUL-301", title: "Wire OTLP exporter behind feature flag",                  status: "in_review",   priority: "medium", assignee: "Lambda (claude)", workspace: "multica-platform",updated: "31m" },
+  { id: "MUL-298", title: "Update docs: agent runtime configuration",                status: "done",        priority: "low",    assignee: "Lambda (claude)", workspace: "multica-docs",    updated: "1h"  },
+  { id: "MUL-289", title: "Investigate memory leak in long-running runs",            status: "blocked",     priority: "urgent", assignee: "Theta (codex)",   workspace: "multica-core",    updated: "2h"  },
+  { id: "MUL-330", title: "Sketch: cooperative cache eviction for runtime",          status: "todo",        priority: "medium", assignee: "—",               workspace: "multica-core",    updated: "3h"  },
+  { id: "MUL-275", title: "Render flame graph in dashboard",                         status: "in_progress", priority: "medium", assignee: "Lambda (claude)", workspace: "multica-platform",updated: "1d"  },
+  { id: "MUL-340", title: "Switch default model envelope to thinking-1m",            status: "backlog",     priority: "low",    assignee: "—",               workspace: "multica-platform",updated: "2d"  },
+  { id: "MUL-285", title: "Cancel button should propagate to all in-flight subtasks", status: "todo",       priority: "high",   assignee: "—",               workspace: "multica-core",    updated: "2d"  },
+];
+
+const RUNTIMES = [
+  { cli: "claude",     path: "/opt/homebrew/bin/claude",                 version: "1.0.42", model: "sonnet-4.5",        status: "ready",    inflight: 2, queued: 0, cap: 8,  lastUsed: "12s ago",  cost24h: "$4.18", tokens24h: "412k", success: 0.94 },
+  { cli: "codex",      path: "/opt/homebrew/bin/codex",                  version: "0.18.3", model: "gpt-5.1",           status: "ready",    inflight: 1, queued: 1, cap: 6,  lastUsed: "1m ago",   cost24h: "$2.81", tokens24h: "188k", success: 0.91 },
+  { cli: "gemini",     path: "/opt/homebrew/bin/gemini",                 version: "0.4.0",  model: "2.5-pro",           status: "ready",    inflight: 0, queued: 0, cap: 4,  lastUsed: "37m ago",  cost24h: "$0.62", tokens24h: "48k",  success: 0.88 },
+  { cli: "claude-opus",path: "/opt/homebrew/bin/claude",                 version: "1.0.42", model: "opus-4.1",          status: "ready",    inflight: 1, queued: 0, cap: 2,  lastUsed: "4m ago",   cost24h: "$6.40", tokens24h: "92k",  success: 0.97 },
+  { cli: "copilot",    path: "/usr/local/bin/gh-copilot",                version: "0.9.1",  model: "—",                 status: "disabled", inflight: 0, queued: 0, cap: 4,  lastUsed: "never",    cost24h: "$0.00", tokens24h: "0",    success: 0    },
+  { cli: "kiro-cli",   path: "/Applications/Kiro.app/Contents/MacOS/kiro",version:"0.2.1",  model: "kiro-coder-1",      status: "ready",    inflight: 0, queued: 0, cap: 2,  lastUsed: "2h ago",   cost24h: "$0.18", tokens24h: "11k",  success: 0.83 },
+  { cli: "opencode",   path: "~/.local/bin/opencode",                    version: "0.2.7",  model: "auto",              status: "stale",    inflight: 0, queued: 0, cap: 2,  lastUsed: "8d ago",   cost24h: "$0.00", tokens24h: "0",    success: 0    },
+  { cli: "hermes",     path: "—",                                        version: "—",      model: "—",                 status: "not_found",inflight: 0, queued: 0, cap: 0,  lastUsed: "never",    cost24h: "$0.00", tokens24h: "0",    success: 0    },
+  { cli: "cursor-agent",path:"/Applications/Cursor.app/.../cursor-agent",version: "0.7.4",  model: "anthropic/sonnet-4",status: "ready",    inflight: 0, queued: 0, cap: 4,  lastUsed: "yesterday",cost24h: "$0.41", tokens24h: "31k",  success: 0.90 },
+];
+
+const WORKSPACES = [
+  { id: "ws_core",     name: "multica-core",     members: 7,  watch: true,  issues: 38, sessions: 4, role: "Maintainer" },
+  { id: "ws_platform", name: "multica-platform", members: 4,  watch: true,  issues: 21, sessions: 3, role: "Maintainer" },
+  { id: "ws_docs",     name: "multica-docs",     members: 12, watch: true,  issues: 9,  sessions: 1, role: "Editor"    },
+  { id: "ws_pinpoint", name: "pinpoint-eng",     members: 3,  watch: false, issues: 6,  sessions: 0, role: "Viewer"    },
+  { id: "ws_org",      name: "org-internal",     members: 22, watch: false, issues: 14, sessions: 0, role: "Member"    },
+];
+
+const LOG_LINES = [
+  ["16:42:18", "INFO",  "daemon",    "heartbeat ok · server=app.multica.ai latency=38ms"],
+  ["16:42:14", "INFO",  "scheduler", "session ses_7Hq awaiting input · idle 02:11"],
+  ["16:42:09", "DEBUG", "runtime",   "claude poll · 1 task claimed (MUL-322)"],
+  ["16:42:02", "INFO",  "runtime",   "codex started task t_91ad on session ses_9Lp"],
+  ["16:41:58", "WARN",  "fs",        "workspace 'multica-core' at 78% of disk quota (2.4G / 3.0G)"],
+  ["16:41:50", "INFO",  "daemon",    "heartbeat ok · server=app.multica.ai latency=41ms"],
+  ["16:41:44", "DEBUG", "scheduler", "tick · 3 active · 1 idle · 0 queued"],
+  ["16:41:31", "INFO",  "runtime",   "claude task t_8fa1 streamed 412 tokens"],
+  ["16:41:22", "ERROR", "runtime",   "codex task t_7bb2 exited 124 (agent timeout · ses_M4g)"],
+  ["16:41:10", "INFO",  "daemon",    "deregistered runtime opencode (stale, last seen 8d ago)"],
+  ["16:41:02", "INFO",  "auth",      "token refreshed · valid for 86 days"],
+  ["16:40:55", "DEBUG", "scheduler", "tick · 4 active · 1 idle · 0 queued"],
+  ["16:40:46", "INFO",  "runtime",   "claude poll · 0 tasks"],
+  ["16:40:32", "INFO",  "daemon",    "heartbeat ok · server=app.multica.ai latency=36ms"],
+  ["16:40:18", "INFO",  "fs",        "session ses_Z1f closed · cleaned 84M from workspace"],
+  ["16:40:02", "DEBUG", "runtime",   "claude poll · 1 task claimed (MUL-318)"],
+  ["16:39:48", "INFO",  "daemon",    "heartbeat ok · server=app.multica.ai latency=39ms"],
+  ["16:39:22", "INFO",  "runtime",   "codex task t_6cc0 finished · 8m12s · tokens 4180/612"],
+  ["16:39:14", "INFO",  "daemon",    "config reload · poll_interval 3s → 3s (unchanged)"],
+  ["16:38:55", "DEBUG", "scheduler", "tick · 5 active · 0 idle · 0 queued"],
+];
+
+const PROFILES = [
+  { id: "default",     server: "app.multica.ai",     ws: "wss://api.multica.ai/ws",        active: true,  daemonPid: 48132, uptime: "4h 32m", watchedCount: 3 },
+  { id: "staging",     server: "staging.multica.ai", ws: "wss://staging-api.multica.ai/ws", active: false, daemonPid: null,  uptime: "—",      watchedCount: 1 },
+  { id: "self-hosted", server: "app.acme.dev",       ws: "wss://api.acme.dev/ws",          active: false, daemonPid: null,  uptime: "—",      watchedCount: 2 },
+];
+
+const CONFIG = {
+  server: {
+    app_url:    "https://app.multica.ai",
+    server_url: "wss://api.multica.ai/ws",
+  },
+  daemon: {
+    poll_interval:        "3s",
+    heartbeat_interval:   "15s",
+    agent_timeout:        "2h",
+    max_concurrent_tasks: 20,
+    daemon_id:            "luna.local",
+    device_name:          "luna.local",
+    runtime_name:         "Local Agent",
+    workspaces_root:      "~/multica_workspaces",
+    log_level:            "info",
+    log_path:             "~/.multica/profiles/default/daemon.log",
+  },
+  auth: {
+    token_prefix: "mlt_•••2f8a",
+    expires_in:   "86d",
+    user:         "@you",
+    org:          "org-acme",
+  },
+  watch: ["multica-core", "multica-platform", "multica-docs"],
+  agents: {
+    claude: {
+      path:  "/opt/homebrew/bin/claude", model: "sonnet-4.5",
+      env:   { MULTICA_CLAUDE_PATH: "(default)", MULTICA_CLAUDE_MODEL: "(default)" },
+      concurrency: 8,
+    },
+    codex: {
+      path:  "/opt/homebrew/bin/codex", model: "gpt-5.1",
+      env:   { MULTICA_CODEX_PATH: "(default)", MULTICA_CODEX_MODEL: "(default)" },
+      concurrency: 6,
+    },
+    gemini: {
+      path:  "/opt/homebrew/bin/gemini", model: "2.5-pro",
+      env:   {}, concurrency: 4,
+    },
+    "claude-opus": {
+      path:  "/opt/homebrew/bin/claude", model: "opus-4.1",
+      env:   { MULTICA_CLAUDE_MODEL: "opus-4.1 (pinned)" },
+      concurrency: 2,
+    },
+  },
+  tui: {
+    default_view:           "overview",
+    notify_on_needs_input:  "desktop + sound · 10s",
+    autostart:              "on login (launchd)",
+    theme:                  "warm-dark",
+    follow_focus_on_alert:  true,
+    confirm_destructive:    true,
+    show_thinking:          "collapsed",
+    transcript_density:     "comfortable",
+  },
+  budgets: {
+    daily_cap_usd:     50.00,
+    daily_used_usd:    14.20,
+    per_run_cap_usd:    5.00,
+    warn_pct:          80,
+  },
+};
+
+const SESSION_TRANSCRIPT = [
+  { kind: "user",      time: "16:02:14", body: "Refactor the task scheduler to use cooperative cancellation — keep the existing tests green." },
+  { kind: "plan",      time: "16:02:18", body: "Plan:\n  1. Map the current cancellation surface\n  2. Pick between context.CancelCause vs a per-runtime shim\n  3. Migrate dispatcher → runtimes → tasks\n  4. Keep wire compat for heartbeat" },
+  { kind: "tool",      time: "16:02:21", tool: "Read",  arg: "internal/daemon/scheduler.go" },
+  { kind: "tool",      time: "16:02:24", tool: "Read",  arg: "internal/daemon/runtime.go" },
+  { kind: "tool",      time: "16:02:30", tool: "Grep",  arg: "ctx.Err — 14 matches across 9 files" },
+  { kind: "thinking",  time: "16:02:38", body: "Three layers propagate ctx without a cancel reason. The wire format includes a status int, so I can carry the cause without breaking heartbeat compat." },
+  { kind: "tool",      time: "16:02:52", tool: "Edit",  arg: "internal/daemon/runtime.go (+38 −12)" },
+  { kind: "tool",      time: "16:03:08", tool: "Bash",  arg: "go test ./internal/daemon/... -run TestCancel" },
+  { kind: "tool",      time: "16:03:18", tool: "Bash",  arg: "go vet ./..." },
+  { kind: "thinking",  time: "16:03:24", body: "Cleaner to refactor the dispatcher first — but that's a wider change. Shipping the shim first means we get observability now and can migrate per-runtime." },
+  { kind: "ask",       time: "16:39:10", body: "Two valid approaches surfaced. Should I:\n  (a) refactor the dispatcher first, then teardown — cleaner, ~600 LOC.\n  (b) add the context.CancelCause shim first and migrate per-runtime — ships faster, less risk." },
+];
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * useListNav — generic list keyboard nav (j/k, gg/G, ⌃d/⌃u, Enter, Esc, +action)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function useListNav(itemsLen, opts = {}) {
+  const { onOpen, onEsc, onAction, scopeReady = true } = opts;
+  const [sel, setSel] = useState(0);
+  const [pendingG, setPendingG] = useState(false);
+
+  useEffect(() => { if (sel >= itemsLen) setSel(Math.max(0, itemsLen - 1)); }, [itemsLen, sel]);
+
+  useEffect(() => {
+    if (!scopeReady) return;
+    const handler = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (e.key === "j" || e.key === "ArrowDown") {
+        setSel(s => Math.min(itemsLen - 1, s + 1)); e.preventDefault(); setPendingG(false); return;
+      }
+      if (e.key === "k" || e.key === "ArrowUp") {
+        setSel(s => Math.max(0, s - 1)); e.preventDefault(); setPendingG(false); return;
+      }
+      if (e.key === "G") { setSel(itemsLen - 1); e.preventDefault(); setPendingG(false); return; }
+      if (e.key === "g") {
+        if (pendingG) { setSel(0); setPendingG(false); e.preventDefault(); }
+        else setPendingG(true);
+        return;
+      }
+      if ((e.key === "d" || e.key === "u") && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const half = Math.max(1, Math.floor(itemsLen / 8));
+        setSel(s => Math.max(0, Math.min(itemsLen - 1, s + (e.key === "d" ? half : -half))));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "ArrowRight") { onOpen?.(sel); e.preventDefault(); return; }
+      if (e.key === "Escape") { onEsc?.(); return; }
+      if (onAction) onAction(e, sel);
+      setPendingG(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [itemsLen, sel, onOpen, onEsc, onAction, scopeReady, pendingG]);
+
+  return [sel, setSel];
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * OVERVIEW (1) — focusable cards, arrow-key drill-down
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const OV_CARDS = [
+  { id: "daemon",   row: 0, col: 0, jump: "config",   title: "daemon" },
+  { id: "env",      row: 1, col: 0, jump: "config",   title: "local environment" },
+  { id: "server",   row: 0, col: 1, jump: "config",   title: "remote · app.multica.ai" },
+  { id: "sessions", row: 1, col: 1, jump: "sessions", title: "sessions" },
+  { id: "activity", row: 0, col: 2, jump: "logs",     title: "recent activity", span: 2 },
+];
+
+function OverviewView({ daemon, onJump }) {
+  const [focusIdx, setFocusIdx] = useState(0);
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.target.tagName === "INPUT") return;
+      const cur = OV_CARDS[focusIdx];
+      if (!cur) return;
+      const move = (dr, dc) => {
+        const target = OV_CARDS.find(c => c.row === cur.row + dr && c.col === cur.col + dc);
+        if (target) { setFocusIdx(OV_CARDS.indexOf(target)); e.preventDefault(); }
+      };
+      if      (e.key === "ArrowDown"  || e.key === "j") move(1, 0);
+      else if (e.key === "ArrowUp"    || e.key === "k") move(-1, 0);
+      else if (e.key === "ArrowRight" || e.key === "l") move(0, 1);
+      else if (e.key === "ArrowLeft"  || e.key === "h") move(0, -1);
+      else if (e.key === "Enter") { onJump?.(cur.jump); e.preventDefault(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [focusIdx, onJump]);
+
+  const counts = useMemo(() => {
+    const c = { needs_input: 0, working: 0, running: 0, idle: 0, completed: 0, failed: 0, paused: 0 };
+    SESSIONS.forEach(s => { c[s.state] = (c[s.state] || 0) + 1; });
+    return c;
+  }, []);
+  const cpuSpark = useMemo(() => Array.from({length: 28}, (_,i) => 10 + Math.sin(i/2)*4 + Math.random()*6), []);
+  const memSpark = useMemo(() => Array.from({length: 28}, (_,i) => 30 + Math.cos(i/3)*5 + Math.random()*4), []);
+  const hbSpark  = useMemo(() => Array.from({length: 48}, (_,i) => 35 + Math.sin(i/2.5)*4 + Math.random()*5), []);
+
+  const cardProps = (id) => {
+    const idx = OV_CARDS.findIndex(c => c.id === id);
+    return {
+      focused: focusIdx === idx,
+      onClick: () => setFocusIdx(idx),
+      title: OV_CARDS[idx].title,
+    };
+  };
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1.05fr 1.05fr 0.9fr", gridTemplateRows: "auto 1fr", gap: 12, height: "100%" }}>
+      <Panel {...cardProps("daemon")}
+        right={focusIdx === 0 ? <span>↵ <span style={{ color: "var(--accent)" }}>config</span></span> : null}>
+        <DaemonStatCard daemon={daemon} />
+      </Panel>
+
+      <Panel {...cardProps("server")}
+        right={focusIdx === 2 ? <span>↵ <span style={{ color: "var(--accent)" }}>config</span></span> : null}>
+        <ServerCard hbSpark={hbSpark} />
+      </Panel>
+
+      <Panel {...cardProps("activity")}
+        style={{ gridRow: "1 / span 2" }}
+        right={focusIdx === 4 ? <span>↵ <span style={{ color: "var(--accent)" }}>logs</span></span> : <span style={{ color: "var(--text-faint)" }}>last 5m</span>}
+        scrollable>
+        <ActivityStream />
+      </Panel>
+
+      <Panel {...cardProps("env")}
+        right={focusIdx === 1 ? <span>↵ <span style={{ color: "var(--accent)" }}>config</span></span> : null}>
+        <EnvCard cpuSpark={cpuSpark} memSpark={memSpark} />
+      </Panel>
+
+      <Panel {...cardProps("sessions")}
+        right={focusIdx === 3 ? <span>↵ <span style={{ color: "var(--accent)" }}>sessions</span></span> : <span style={{ color: "var(--text-faint)" }}>press <span style={{ color: "var(--accent)" }}>2</span></span>}>
+        <SessionsSummary counts={counts} onJump={onJump} />
+      </Panel>
+    </div>
+  );
+}
+
+function DaemonStatCard({ daemon }) {
+  const Row = ({ k, v, vc }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: "1px dashed var(--border)" }}>
+      <span style={{ color: "var(--text-faint)" }}>{k}</span>
+      <span style={{ color: vc || "var(--text)" }} className="tui-num">{v}</span>
+    </div>
+  );
+  return (
+    <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <Dot color="var(--ok)" />
+        <span style={{ color: "var(--ok)", fontWeight: 600, fontSize: 14 }}>UP</span>
+        <span style={{ color: "var(--text-faint)" }}>· healthy</span>
+        <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 11 }} className="tui-num">v{daemon.version}</span>
+      </div>
+      <Row k="pid"             v={daemon.pid} />
+      <Row k="profile"         v={daemon.profile} vc="var(--accent)" />
+      <Row k="uptime"          v={daemon.uptime} />
+      <Row k="poll interval"   v="3.0s" />
+      <Row k="heartbeat"       v="15.0s" />
+      <Row k="max concurrent"  v="20" />
+      <Row k="workspaces root" v="~/multica_workspaces" />
+      <Row k="config"          v="~/.multica/profiles/default" />
+    </div>
+  );
+}
+
+function EnvCard({ cpuSpark, memSpark }) {
+  const Row = ({ label, pct, spark, val, color }) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+        <span style={{ color: "var(--text-dim)" }}>{label}</span>
+        <span className="tui-num" style={{ color: "var(--text)" }}>{val}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Bar pct={pct} width={22} color={color} />
+        <span style={{ fontSize: 11 }}><Spark values={spark} width={22} color={color} /></span>
+      </div>
+    </div>
+  );
+  return (
+    <div>
+      <Row label="cpu"      pct={18} val="18%"   spark={cpuSpark} color="var(--accent)" />
+      <Row label="memory"   pct={41} val="6.5G / 16G" spark={memSpark} color="var(--info)" />
+      <Row label="disk · ~/multica_workspaces" pct={62} val="18.6G / 30G" spark={memSpark} color="var(--violet)" />
+      <Row label="network · out" pct={8} val="124 kbps" spark={cpuSpark} color="var(--ok)" />
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "var(--text-faint)", marginTop: 10, borderTop: "1px dashed var(--border)", paddingTop: 8 }}>
+        <span>host <span style={{ color: "var(--text-dim)" }}>luna.local</span></span>
+        <span>os <span style={{ color: "var(--text-dim)" }}>darwin · arm64</span></span>
+        <span>battery <span style={{ color: "var(--ok)" }}>94%</span></span>
+      </div>
+    </div>
+  );
+}
+
+function ServerCard({ hbSpark }) {
+  const Row = ({ k, v, vc }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: "1px dashed var(--border)" }}>
+      <span style={{ color: "var(--text-faint)" }}>{k}</span>
+      <span style={{ color: vc || "var(--text)" }} className="tui-num">{v}</span>
+    </div>
+  );
+  return (
+    <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <Dot color="var(--ok)" />
+        <span style={{ color: "var(--ok)", fontWeight: 600, fontSize: 14 }}>REACHABLE</span>
+        <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 11 }}>last hb 4s ago</span>
+      </div>
+      <Row k="app url"      v="app.multica.ai" />
+      <Row k="ws url"       v="api.multica.ai/ws" />
+      <Row k="region"       v="us-west · iad1" />
+      <Row k="latency p50"  v="38ms" vc="var(--ok)" />
+      <Row k="latency p99"  v="92ms" />
+      <Row k="token"        v="valid · 86d left" />
+      <Row k="user"         v="@you · org-acme" vc="var(--accent)" />
+      <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-faint)" }}>
+        heartbeat trace · last 60s
+        <div style={{ marginTop: 2, color: "var(--ok)", fontSize: 14, letterSpacing: -1 }}>
+          <Spark values={hbSpark} width={48} color="var(--ok)" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SessionsSummary({ counts, onJump }) {
+  const order = ["needs_input", "working", "running", "paused", "idle", "completed", "failed"];
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+        {order.map(k => {
+          const m = STATE_META[k];
+          const v = counts[k] || 0;
+          const active = v > 0;
+          return (
+            <div key={k} className="tui-row"
+              onClick={() => onJump?.("sessions", { filter: k })}
+              style={{ padding: "6px 10px", border: `1px solid ${active ? m.color : "var(--border)"}`, cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StateGlyph state={k} />
+                <span style={{ fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{m.label}</span>
+                <span style={{ marginLeft: "auto", fontSize: 16, fontWeight: 600, color: active ? m.color : "var(--text-mute)" }} className="tui-num">{v}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-faint)", paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
+        <span style={{ color: "var(--warn)" }}>2 sessions need you</span> · oldest waiting <span className="tui-num" style={{ color: "var(--text)" }}>02:11</span>
+      </div>
+    </div>
+  );
+}
+
+function ActivityStream() {
+  const items = [
+    { t: "16:42", glyph: <StateGlyph state="needs_input" />, s: "ses_7Hq", body: "asked a question · scheduler refactor approach" },
+    { t: "16:41", glyph: <StateGlyph state="running" />,     s: "ses_9Lp", body: "writing migration 011_add_quota.sql" },
+    { t: "16:41", glyph: <span style={{ color: "var(--warn)", width: 14, display: "inline-block", textAlign: "center" }}>!</span>, s: "fs", body: "workspace 'multica-core' at 78% disk quota" },
+    { t: "16:41", glyph: <StateGlyph state="failed" />,      s: "ses_M4g", body: "agent timeout · 18m without progress" },
+    { t: "16:41", glyph: <StateGlyph state="completed" />,   s: "ses_Z1f", body: "PR opened · multica#1284 · docs/runtime" },
+    { t: "16:40", glyph: <span style={{ color: "var(--info)", width: 14, display: "inline-block", textAlign: "center" }}>↻</span>, s: "auth", body: "token refreshed · valid for 86 days" },
+    { t: "16:40", glyph: <StateGlyph state="working" />,     s: "ses_2Kc", body: "running tests · ./e2e/heartbeat (4/12)" },
+    { t: "16:39", glyph: <StateGlyph state="running" />,     s: "ses_7Hq", body: "edited internal/daemon/runtime.go" },
+    { t: "16:39", glyph: <span style={{ color: "var(--text-faint)", width: 14, display: "inline-block", textAlign: "center" }}>·</span>, s: "cfg", body: "config reload · poll_interval unchanged" },
+    { t: "16:38", glyph: <StateGlyph state="needs_input" />, s: "ses_Q3d", body: "requested permission to /etc/multica" },
+    { t: "16:37", glyph: <StateGlyph state="running" />,     s: "ses_9Lp", body: "ran ./migrate.sh on stage db" },
+    { t: "16:36", glyph: <StateGlyph state="completed" />,   s: "ses_T2k", body: "tests passed · 412/412 · 8m32s" },
+  ];
+  return (
+    <div style={{ fontSize: 12, lineHeight: 1.55, fontFamily: "var(--mono)" }}>
+      {items.map((x, i) => (
+        <div key={i} style={{ padding: "5px 0", borderBottom: "1px dashed var(--border)", display: "grid", gridTemplateColumns: "44px 18px 64px 1fr", gap: 6, alignItems: "center" }}>
+          <span className="tui-num" style={{ color: "var(--text-mute)" }}>{x.t}</span>
+          {x.glyph}
+          <span style={{ color: "var(--text-faint)" }}>{x.s}</span>
+          <span style={{ color: "var(--text-dim)" }}>{x.body}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SESSIONS (2)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const SESSION_FILTERS = ["all", "needs_input", "working", "running", "paused", "idle", "completed", "failed"];
+
+function SessionsView({ initialFilter, onAttach }) {
+  const [filter, setFilter] = useState(initialFilter || "all");
+  const [query, setQuery] = useState("");
+  const queryRef = useRef(null);
+
+  const rows = useMemo(() => {
+    return SESSIONS
+      .filter(s => filter === "all" || s.state === filter)
+      .filter(s => !query || (s.title + s.issue + s.id).toLowerCase().includes(query.toLowerCase()))
+      .sort((a, b) => (STATE_META[a.state]?.sort ?? 9) - (STATE_META[b.state]?.sort ?? 9));
+  }, [filter, query]);
+
+  const [sel, setSel] = useListNav(rows.length, {
+    onOpen: (i) => rows[i] && onAttach(rows[i].id),
+    onEsc:  () => { if (query) setQuery(""); else if (filter !== "all") setFilter("all"); },
+    onAction: (e) => {
+      if (e.key === "[" || e.key === "]") {
+        const ix = SESSION_FILTERS.indexOf(filter);
+        const next = (ix + (e.key === "]" ? 1 : -1) + SESSION_FILTERS.length) % SESSION_FILTERS.length;
+        setFilter(SESSION_FILTERS[next]);
+        e.preventDefault();
+      }
+      if (e.key === "*") {
+        const start = sel + 1;
+        const ix = rows.findIndex((r, i) => i >= start && r.state === "needs_input");
+        const found = ix === -1 ? rows.findIndex(r => r.state === "needs_input") : ix;
+        if (found !== -1) setSel(found);
+        e.preventDefault();
+      }
+      if (e.key === "/") { queryRef.current?.focus(); e.preventDefault(); }
+    },
+  });
+
+  const counts = useMemo(() => {
+    const c = { all: SESSIONS.length };
+    SESSIONS.forEach(s => { c[s.state] = (c[s.state] || 0) + 1; });
+    return c;
+  }, []);
+
+  const selSession = rows[sel];
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12, height: "100%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {SESSION_FILTERS.map(f => {
+            const active = f === filter;
+            const meta = f === "all" ? null : STATE_META[f];
+            return (
+              <button key={f} onClick={() => setFilter(f)}
+                style={{
+                  background: active ? "var(--accent-faint)" : "transparent",
+                  border: `1px solid ${active ? "var(--accent-dim)" : "var(--border)"}`,
+                  color: active ? "var(--accent)" : (meta?.color || "var(--text-dim)"),
+                  fontFamily: "var(--mono)", fontSize: 11.5,
+                  padding: "3px 9px", cursor: "pointer", borderRadius: 2,
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                }}>
+                {meta && (meta.spinner ? <Spinner color={meta.color} /> : <span style={{ color: meta.color }}>{meta.glyph}</span>)}
+                <span>{f === "all" ? "all" : meta.label}</span>
+                <span className="tui-num" style={{ color: "var(--text-faint)" }}>{counts[f] || 0}</span>
+              </button>
+            );
+          })}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 4, fontSize: 10.5, color: "var(--text-mute)" }}>
+            <span style={{ padding: "0 4px", border: "1px solid var(--border)", borderRadius: 2 }}>[</span>
+            <span style={{ padding: "0 4px", border: "1px solid var(--border)", borderRadius: 2 }}>]</span>
+            <span>cycle</span>
+          </span>
+          <div style={{ flex: 1 }} />
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--border)", padding: "3px 8px", borderRadius: 2 }}>
+            <span style={{ color: "var(--text-faint)", fontSize: 11 }}>/</span>
+            <input ref={queryRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="filter sessions…"
+              style={{ background: "transparent", border: 0, outline: 0, color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, width: 160 }} />
+          </span>
+        </div>
+
+        <Panel title={`sessions · ${rows.length}`}
+          right={<span style={{ color: "var(--text-faint)" }}>sort · needs-you first</span>}
+          style={{ flex: 1, minHeight: 0 }} pad={0} scrollable>
+          <SessionTable rows={rows} sel={sel} setSel={setSel} onAttach={onAttach} />
+        </Panel>
+      </div>
+
+      <SessionPeek session={selSession} onAttach={onAttach} />
+    </div>
+  );
+}
+
+function SessionTable({ rows, sel, setSel, onAttach }) {
+  const containerRef = useRef(null);
+  const selRef = useRef(null);
+  useEffect(() => {
+    if (selRef.current && containerRef.current) {
+      const c = containerRef.current, el = selRef.current;
+      const top = el.offsetTop, bot = top + el.offsetHeight;
+      const cTop = c.scrollTop + 28, cBot = c.scrollTop + c.clientHeight - 8;
+      if (top < cTop) c.scrollTop = top - 28;
+      else if (bot > cBot) c.scrollTop = bot - c.clientHeight + 8;
+    }
+  }, [sel]);
+
+  return (
+    <div ref={containerRef} style={{ fontSize: 12.5, fontFamily: "var(--mono)", height: "100%", overflowY: "auto" }}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "26px 84px minmax(0, 1.7fr) 130px 130px 80px 72px",
+        padding: "8px 12px",
+        color: "var(--text-faint)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.08em",
+        borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1,
+      }}>
+        <span /><span>issue</span><span>title · activity</span><span>agent</span><span>workspace</span>
+        <span style={{ textAlign: "right" }}>elapsed</span><span style={{ textAlign: "right" }}>cost</span>
+      </div>
+      {rows.map((s, i) => {
+        const selected = i === sel;
+        return (
+          <div key={s.id}
+            ref={selected ? selRef : null}
+            className={`tui-row ${selected ? "sel-accent" : ""}`}
+            onClick={() => setSel(i)}
+            onDoubleClick={() => onAttach(s.id)}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "26px 84px minmax(0, 1.7fr) 130px 130px 80px 72px",
+              padding: "8px 12px",
+              borderLeft: `2px solid ${selected ? "var(--accent)" : "transparent"}`,
+              cursor: "pointer", alignItems: "center",
+            }}>
+            <StateGlyph state={s.state} />
+            <span style={{ color: "var(--text-dim)" }}>{s.issue}</span>
+            <span style={{ minWidth: 0 }}>
+              <div style={{ color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.title}</div>
+              <div style={{ color: s.state === "needs_input" ? "var(--warn)" : "var(--text-faint)", fontSize: 11.5, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.activity}</div>
+            </span>
+            <span style={{ color: "var(--text-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.agent}<span style={{ color: "var(--text-mute)" }}> · {s.model}</span></span>
+            <span style={{ color: "var(--text-faint)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.workspace}</span>
+            <span className="tui-num" style={{ color: "var(--text-dim)", textAlign: "right" }}>{s.elapsed}</span>
+            <span className="tui-num" style={{ color: "var(--text-dim)", textAlign: "right" }}>{s.cost}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SessionPeek({ session, onAttach }) {
+  if (!session) return <Panel title="peek"><div style={{ color: "var(--text-faint)" }}>no session selected</div></Panel>;
+  return (
+    <Panel title="peek"
+      right={<span><span style={{ color: "var(--text-faint)" }}>↵</span> <span style={{ color: "var(--accent)" }}>attach</span></span>}
+      style={{ minHeight: 0 }} scrollable accent={session.state === "needs_input"}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 12.5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <StatePill state={session.state} />
+          <span style={{ color: "var(--text-faint)" }} className="tui-num">{session.id}</span>
+          <span style={{ marginLeft: "auto", color: "var(--text-faint)" }}>{session.issue}</span>
+        </div>
+        <div style={{ color: "var(--text)", marginBottom: 10, fontSize: 13.5, fontWeight: 500 }}>{session.title}</div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "70px 1fr", rowGap: 3, columnGap: 8, fontSize: 12, marginBottom: 10 }}>
+          <span style={{ color: "var(--text-faint)" }}>agent</span>     <span>{session.agent}<span style={{ color: "var(--text-faint)" }}> · {session.model}</span></span>
+          <span style={{ color: "var(--text-faint)" }}>workspace</span> <span>{session.workspace}</span>
+          <span style={{ color: "var(--text-faint)" }}>branch</span>    <span style={{ color: "var(--violet)" }}>{session.branch}</span>
+          <span style={{ color: "var(--text-faint)" }}>started</span>   <span className="tui-num">{session.started}</span>
+          <span style={{ color: "var(--text-faint)" }}>elapsed</span>   <span className="tui-num">{session.elapsed}</span>
+          <span style={{ color: "var(--text-faint)" }}>tokens</span>    <span className="tui-num">{session.tokensIn.toLocaleString()} in · {session.tokensOut.toLocaleString()} out</span>
+          <span style={{ color: "var(--text-faint)" }}>cost</span>      <span className="tui-num">{session.cost}</span>
+        </div>
+
+        {session.question && (
+          <div style={{ border: "1px solid var(--accent-dim)", background: "var(--accent-faint)", padding: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "var(--accent)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 5 }}>
+              <StateGlyph state="needs_input" /> waiting on you
+            </div>
+            <div style={{ color: "var(--text)", lineHeight: 1.5 }}>{session.question}</div>
+          </div>
+        )}
+
+        {session.log && (
+          <div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "8px 0 4px" }}>recent</div>
+            {session.log.map((l, i) => (
+              <div key={i} style={{ padding: "2px 0", display: "flex", gap: 8 }}>
+                <span style={{ color: "var(--text-faint)", width: 60, flexShrink: 0, fontSize: 11.5 }}>{l[0]}</span>
+                <span style={{ color: l[0] === "ask" ? "var(--warn)" : l[0] === "tool" ? "var(--info)" : "var(--text-dim)" }}>{l[1]}</span>
+                <span style={{ color: "var(--text-faint)" }}>{l[2]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <Key k="↵" label="attach" accent onClick={() => onAttach(session.id)} />
+          <Key k="r" label="reply" />
+          <Key k="b" label="background" />
+          <Key k="x" label="cancel" />
+          <Key k="*" label="next needs-input" />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SESSION ATTACH
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function SessionAttachView({ sessionId, onDetach }) {
+  const s = SESSIONS.find(x => x.id === sessionId) || SESSIONS[0];
+  const [reply, setReply] = useState("");
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 12, height: "100%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 2px" }}>
+          <Key k="←" label="detach" onClick={onDetach} accent />
+          <StatePill state={s.state} />
+          <span style={{ color: "var(--text-faint)" }}>{s.issue}</span>
+          <span style={{ color: "var(--text)" }}>· {s.title}</span>
+          <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 11.5 }} className="tui-num">{s.id} · elapsed {s.elapsed}</span>
+        </div>
+
+        <Panel title="transcript" right={<span style={{ color: "var(--text-faint)" }}>j/k scroll · g top · G bottom</span>} style={{ flex: 1, minHeight: 0 }} pad={0} scrollable>
+          <TranscriptStream />
+        </Panel>
+
+        <div style={{
+          border: `1px solid ${s.state === "needs_input" ? "var(--accent-dim)" : "var(--border)"}`,
+          background: "var(--bg)", padding: 10,
+        }}>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "var(--accent)" }}>›</span> reply to <span style={{ color: "var(--text-dim)" }}>{s.id}</span>
+            <span style={{ marginLeft: "auto" }}><Key k="↵" label="send" /></span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: "var(--accent)" }}>›</span>
+            <input value={reply} onChange={e => setReply(e.target.value)}
+              placeholder={s.state === "needs_input" ? "(a) refactor the dispatcher first, then teardown" : "type a message…"}
+              style={{ flex: 1, background: "transparent", border: 0, outline: 0, color: "var(--text)", fontFamily: "var(--mono)", fontSize: 13 }} />
+            <span className="tui-caret" style={{ color: "var(--accent)" }}>▌</span>
+          </div>
+        </div>
+      </div>
+
+      <SessionAttachSidebar s={s} />
+    </div>
+  );
+}
+
+function TranscriptStream() {
+  return (
+    <div style={{ fontSize: 13, fontFamily: "var(--mono)", lineHeight: 1.55, padding: "8px 14px" }}>
+      {SESSION_TRANSCRIPT.map((e, i) => <TranscriptEntry key={i} e={e} />)}
+      <div style={{ color: "var(--text-faint)", marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+        <StateGlyph state="needs_input" />
+        <span style={{ color: "var(--accent)" }}>waiting for you</span>
+        <span>· 02:11 idle</span>
+      </div>
+    </div>
+  );
+}
+
+function TranscriptEntry({ e }) {
+  if (e.kind === "user") {
+    return (
+      <div style={{ padding: "10px 0", borderBottom: "1px dashed var(--border)" }}>
+        <div style={{ color: "var(--accent)", fontSize: 11, letterSpacing: "0.05em", marginBottom: 2 }}>YOU · {e.time}</div>
+        <div style={{ color: "var(--text)" }}>{e.body}</div>
+      </div>
+    );
+  }
+  if (e.kind === "plan") {
+    return (
+      <div style={{ padding: "10px 0" }}>
+        <div style={{ color: "var(--violet)", fontSize: 11, letterSpacing: "0.05em", marginBottom: 4 }}>◇ PLAN · {e.time}</div>
+        <pre style={{ margin: 0, color: "var(--text-dim)", fontFamily: "var(--mono)", fontSize: 12.5, whiteSpace: "pre-wrap" }}>{e.body}</pre>
+      </div>
+    );
+  }
+  if (e.kind === "tool") {
+    return (
+      <div style={{ padding: "3px 0", display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ color: "var(--text-faint)", width: 64, fontSize: 11.5 }} className="tui-num">{e.time}</span>
+        <Dot color="var(--info)" />
+        <span style={{ color: "var(--info)" }}>{e.tool}</span>
+        <span style={{ color: "var(--text-dim)" }}>{e.arg}</span>
+      </div>
+    );
+  }
+  if (e.kind === "thinking") {
+    return (
+      <div style={{ padding: "6px 0 6px 72px", borderLeft: "1px dashed var(--border)", marginLeft: 4, color: "var(--text-faint)", fontStyle: "italic", fontSize: 12.5 }}>
+        {e.body}
+      </div>
+    );
+  }
+  if (e.kind === "ask") {
+    return (
+      <div style={{ marginTop: 12, padding: 12, border: "1px solid var(--accent-dim)", background: "var(--accent-faint)" }}>
+        <div style={{ color: "var(--accent)", fontSize: 11, letterSpacing: "0.05em", marginBottom: 4, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <StateGlyph state="needs_input" /> QUESTION · {e.time}
+        </div>
+        <pre style={{ margin: 0, color: "var(--text)", whiteSpace: "pre-wrap", fontFamily: "var(--mono)", fontSize: 13 }}>{e.body}</pre>
+      </div>
+    );
+  }
+  return null;
+}
+
+function SessionAttachSidebar({ s }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+      <Panel title="run">
+        <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+          <KV k="session" v={s.id} />
+          <KV k="agent"   v={`${s.agent} · ${s.model}`} />
+          <KV k="branch"  v={s.branch} c="var(--violet)" />
+          <KV k="started" v={s.started} />
+          <KV k="elapsed" v={s.elapsed} />
+        </div>
+      </Panel>
+      <Panel title="budget">
+        <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+          <KV k="in"     v={s.tokensIn.toLocaleString()} />
+          <KV k="out"    v={s.tokensOut.toLocaleString()} />
+          <KV k="cost"   v={s.cost} c="var(--accent)" />
+          <KV k="cap"    v="$5.00" />
+          <div style={{ marginTop: 6 }}>
+            <Bar pct={Math.min(100, parseFloat(s.cost.replace("$","")) / 5 * 100)} width={22} color="var(--accent)" />
+          </div>
+        </div>
+      </Panel>
+      <Panel title="actions" style={{ flex: 1 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+          <Key k="r" label="reply" />
+          <Key k="b" label="background" />
+          <Key k="t" label="open log tail" />
+          <Key k="d" label="diff for this run" />
+          <Key k="p" label="permission requests" />
+          <Key k="x" label="cancel" />
+          <Key k="!" label="restart with new prompt" />
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ISSUES (3)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const ISSUE_FILTERS = ["all", "active", "todo", "in_progress", "in_review", "blocked", "done", "backlog"];
+
+function IssuesView() {
+  const [statusF, setStatusF] = useState("active");
+
+  const rows = useMemo(() => {
+    return ISSUES.filter(i => {
+      if (statusF === "all") return true;
+      if (statusF === "active") return ["todo", "in_progress", "in_review", "blocked"].includes(i.status);
+      return i.status === statusF;
+    });
+  }, [statusF]);
+
+  const [sel] = useListNav(rows.length, {
+    onAction: (e) => {
+      if (e.key === "[" || e.key === "]") {
+        const ix = ISSUE_FILTERS.indexOf(statusF);
+        setStatusF(ISSUE_FILTERS[(ix + (e.key === "]" ? 1 : -1) + ISSUE_FILTERS.length) % ISSUE_FILTERS.length]);
+        e.preventDefault();
+      }
+    },
+  });
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, height: "100%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {ISSUE_FILTERS.map(f => (
+            <button key={f} onClick={() => setStatusF(f)}
+              style={{
+                background: f === statusF ? "var(--accent-faint)" : "transparent",
+                border: `1px solid ${f === statusF ? "var(--accent-dim)" : "var(--border)"}`,
+                color: f === statusF ? "var(--accent)" : "var(--text-dim)",
+                fontFamily: "var(--mono)", fontSize: 11.5,
+                padding: "3px 9px", cursor: "pointer", borderRadius: 2,
+              }}>{f}</button>
+          ))}
+          <span style={{ marginLeft: 4, fontSize: 10.5, color: "var(--text-mute)" }}>[ ] cycle</span>
+          <div style={{ flex: 1 }} />
+          <Key k="n" label="new" accent />
+          <Key k="a" label="assign" />
+          <Key k="s" label="status" />
+        </div>
+        <Panel title={`issues · ${rows.length}`} style={{ flex: 1, minHeight: 0 }} pad={0} scrollable>
+          <div style={{ height: "100%", overflowY: "auto", fontSize: 12.5 }}>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "26px 80px minmax(0, 1.6fr) 110px 100px 140px 50px",
+              padding: "8px 12px",
+              color: "var(--text-faint)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.08em",
+              borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1,
+            }}>
+              <span /><span>id</span><span>title</span><span>status</span><span>priority</span><span>assignee</span><span style={{ textAlign: "right" }}>upd</span>
+            </div>
+            {rows.map((it, i) => {
+              const ps = PRIORITY_META[it.priority];
+              const ss = STATUS_META[it.status];
+              return (
+                <div key={it.id} className={`tui-row ${i === sel ? "sel-accent" : ""}`}
+                  style={{
+                    display: "grid", gridTemplateColumns: "26px 80px minmax(0, 1.6fr) 110px 100px 140px 50px",
+                    padding: "8px 12px", borderLeft: `2px solid ${i === sel ? "var(--accent)" : "transparent"}`,
+                    cursor: "pointer", alignItems: "center",
+                  }}>
+                  <span style={{ color: ps.color, width: 14, display: "inline-block", textAlign: "center" }}>{ps.glyph}</span>
+                  <span style={{ color: "var(--text-dim)" }} className="tui-num">{it.id}</span>
+                  <span style={{ color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.title}</span>
+                  <span style={{ color: ss.color }}>{it.status}</span>
+                  <span style={{ color: ps.color, textTransform: "lowercase" }}>{it.priority}</span>
+                  <span style={{ color: "var(--text-faint)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.assignee}</span>
+                  <span style={{ color: "var(--text-faint)", textAlign: "right" }} className="tui-num">{it.updated}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+      </div>
+      <IssueDetail it={rows[sel] || ISSUES[0]} />
+    </div>
+  );
+}
+
+function IssueDetail({ it }) {
+  const ss = STATUS_META[it.status];
+  return (
+    <Panel title={it.id} right={<span style={{ color: ss.color }}>{it.status}</span>} style={{ minHeight: 0 }} scrollable>
+      <div style={{ fontSize: 12.5 }}>
+        <div style={{ fontSize: 14, color: "var(--text)", fontWeight: 500, marginBottom: 8 }}>{it.title}</div>
+        <KV k="status"    v={it.status} c={ss.color} />
+        <KV k="priority"  v={it.priority} c={PRIORITY_META[it.priority].color} />
+        <KV k="assignee"  v={it.assignee} />
+        <KV k="workspace" v={it.workspace} />
+        <KV k="updated"   v={`${it.updated} ago`} />
+
+        <div style={{ marginTop: 14, fontSize: 11, color: "var(--text-faint)", letterSpacing: "0.05em", textTransform: "uppercase" }}>recent runs</div>
+        <div style={{ marginTop: 6 }}>
+          <RunRow state="running"   id="t_8fa1" sub="claude · started 16:02 · 39m" />
+          <RunRow state="failed"    id="t_8c92" sub="claude · 14:18 → 14:38 · timeout" />
+          <RunRow state="completed" id="t_8bc0" sub="codex · 11:30 → 11:42 · pushed" />
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <Key k="↵" label="open run" accent />
+          <Key k="a" label="assign" />
+          <Key k="s" label="status" />
+          <Key k="c" label="comment" />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function RunRow({ state, id, sub }) {
+  return (
+    <div style={{ padding: "4px 0", borderBottom: "1px dashed var(--border)", display: "flex", gap: 8, alignItems: "center" }}>
+      <StateGlyph state={state} />
+      <span className="tui-num" style={{ color: "var(--text-dim)" }}>{id}</span>
+      <span style={{ color: "var(--text-faint)" }}>{sub}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * RUNTIMES (4)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function RuntimesView() {
+  const [sel] = useListNav(RUNTIMES.length);
+  const cur = RUNTIMES[sel];
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1.8fr 1fr", gap: 12, height: "100%" }}>
+      <Panel title="agent runtimes" right={<span style={{ color: "var(--text-faint)" }}>auto-detected on $PATH</span>} style={{ minHeight: 0 }} pad={0} scrollable>
+        <div style={{ overflowY: "auto", height: "100%" }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "20px 110px 70px minmax(0, 1.2fr) 110px 80px 70px 80px",
+            padding: "8px 12px",
+            color: "var(--text-faint)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.08em",
+            borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1,
+          }}>
+            <span /><span>cli</span><span>ver</span><span>path</span><span>model</span><span>status</span>
+            <span style={{ textAlign: "right" }}>in/cap</span><span style={{ textAlign: "right" }}>last used</span>
+          </div>
+          {RUNTIMES.map((r, i) => {
+            const c = r.status === "ready" ? "var(--ok)"
+                    : r.status === "stale" ? "var(--warn)"
+                    : r.status === "not_found" ? "var(--text-mute)"
+                    : "var(--text-faint)";
+            const dotGlyph = r.status === "ready" ? "●"
+                           : r.status === "stale" ? "◐"
+                           : r.status === "not_found" ? "✕"
+                           : "○";
+            return (
+              <div key={r.cli} className={`tui-row ${i === sel ? "sel-accent" : ""}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "20px 110px 70px minmax(0, 1.2fr) 110px 80px 70px 80px",
+                  padding: "8px 12px", alignItems: "center", fontSize: 12.5,
+                  borderLeft: `2px solid ${i === sel ? "var(--accent)" : "transparent"}`,
+                }}>
+                <span style={{ color: c, width: 14, display: "inline-block", textAlign: "center" }}>{dotGlyph}</span>
+                <span style={{ color: r.status === "not_found" ? "var(--text-mute)" : "var(--text)" }}>{r.cli}</span>
+                <span style={{ color: "var(--text-dim)" }} className="tui-num">{r.version}</span>
+                <span style={{ color: "var(--text-faint)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.path}</span>
+                <span style={{ color: "var(--text-dim)" }}>{r.model}</span>
+                <span style={{ color: c }}>{r.status === "not_found" ? "missing" : r.status}</span>
+                <span className="tui-num" style={{ color: "var(--text-dim)", textAlign: "right" }}>{r.inflight}/{r.cap}</span>
+                <span style={{ color: "var(--text-faint)", textAlign: "right" }}>{r.lastUsed}</span>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+
+      <Panel title={cur ? `runtime · ${cur.cli}` : "runtime"} style={{ minHeight: 0 }} scrollable>
+        <RuntimeDetail r={cur} />
+      </Panel>
+    </div>
+  );
+}
+
+function RuntimeDetail({ r }) {
+  if (!r) return null;
+  const c = r.status === "ready" ? "var(--ok)" : r.status === "stale" ? "var(--warn)" : "var(--text-faint)";
+  return (
+    <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <Dot color={c} />
+        <span style={{ color: c, fontWeight: 600, fontSize: 13 }}>{r.status.toUpperCase()}</span>
+        <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 11 }}>last used {r.lastUsed}</span>
+      </div>
+      <KV k="cli"     v={r.cli} />
+      <KV k="version" v={r.version} />
+      <KV k="path"    v={r.path} />
+      <KV k="model"   v={r.model} c="var(--text)" />
+      <KV k="concurrency" v={`${r.inflight} in-flight · cap ${r.cap}`} />
+
+      <div style={{ marginTop: 10 }}>
+        <Bar pct={(r.inflight / Math.max(1, r.cap)) * 100} width={28} color={c} />
+      </div>
+
+      <div style={{ marginTop: 14, fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>last 24h</div>
+      <KV k="success" v={`${Math.round(r.success * 100)}%`} c={r.success > 0.9 ? "var(--ok)" : "var(--text)"} />
+      <KV k="tokens"  v={r.tokens24h} />
+      <KV k="cost"    v={r.cost24h} c="var(--accent)" />
+
+      <div style={{ marginTop: 14, fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>env overrides</div>
+      <div style={{ marginTop: 4, fontFamily: "var(--mono)", fontSize: 12 }}>
+        <div style={{ color: "var(--text-faint)" }}>MULTICA_{r.cli.toUpperCase()}_PATH=<span style={{ color: "var(--text-dim)" }}>{r.path}</span></div>
+        <div style={{ color: "var(--text-faint)" }}>MULTICA_{r.cli.toUpperCase()}_MODEL=<span style={{ color: "var(--text-dim)" }}>{r.model}</span></div>
+      </div>
+
+      <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <Key k="↵" label="edit" accent />
+        <Key k="t" label="test handshake" />
+        <Key k="d" label="disable" />
+        <Key k="↺" label="rescan" />
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * WORKSPACES (5)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function WorkspacesView() {
+  const [sel] = useListNav(WORKSPACES.length);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12, height: "100%" }}>
+      <Panel title="workspaces" right={<span style={{ color: "var(--text-faint)" }}>w · watch toggle</span>} style={{ minHeight: 0 }} pad={0} scrollable>
+        <div style={{ overflowY: "auto", height: "100%" }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "26px minmax(0, 1.4fr) 90px 80px 90px 120px",
+            padding: "8px 12px",
+            color: "var(--text-faint)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.08em",
+            borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1,
+          }}>
+            <span /><span>name</span>
+            <span style={{ textAlign: "right" }}>members</span>
+            <span style={{ textAlign: "right" }}>issues</span>
+            <span style={{ textAlign: "right" }}>sessions</span>
+            <span>role</span>
+          </div>
+          {WORKSPACES.map((w, i) => (
+            <div key={w.id} className={`tui-row ${i === sel ? "sel-accent" : ""}`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "26px minmax(0, 1.4fr) 90px 80px 90px 120px",
+                padding: "8px 12px", alignItems: "center", fontSize: 12.5,
+                borderLeft: `2px solid ${i === sel ? "var(--accent)" : "transparent"}`, cursor: "pointer",
+              }}>
+              <span style={{ color: w.watch ? "var(--accent)" : "var(--text-mute)", width: 14, display: "inline-block", textAlign: "center" }}>{w.watch ? "◆" : "◇"}</span>
+              <span style={{ color: w.watch ? "var(--text)" : "var(--text-dim)" }}>{w.name}</span>
+              <span className="tui-num" style={{ color: "var(--text-dim)", textAlign: "right" }}>{w.members}</span>
+              <span className="tui-num" style={{ color: "var(--text-dim)", textAlign: "right" }}>{w.issues}</span>
+              <span className="tui-num" style={{ color: w.sessions > 0 ? "var(--ok)" : "var(--text-mute)", textAlign: "right" }}>{w.sessions}</span>
+              <span style={{ color: "var(--text-faint)" }}>{w.role}</span>
+            </div>
+          ))}
+        </div>
+      </Panel>
+      <Panel title={(WORKSPACES[sel] || {}).name || "workspace"} style={{ minHeight: 0 }} scrollable>
+        <WorkspaceDetail w={WORKSPACES[sel] || WORKSPACES[0]} />
+      </Panel>
+    </div>
+  );
+}
+
+function WorkspaceDetail({ w }) {
+  return (
+    <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <span style={{ color: w.watch ? "var(--accent)" : "var(--text-mute)" }}>{w.watch ? "◆ watched" : "◇ unwatched"}</span>
+        <span style={{ marginLeft: "auto", color: "var(--text-faint)" }} className="tui-num">{w.id}</span>
+      </div>
+      <KV k="name"     v={w.name} />
+      <KV k="role"     v={w.role} />
+      <KV k="members"  v={w.members} />
+      <KV k="issues"   v={w.issues} />
+      <KV k="sessions" v={w.sessions} c={w.sessions > 0 ? "var(--ok)" : "var(--text-dim)"} />
+      <KV k="root"     v={`~/multica_workspaces/${w.name}`} />
+      <KV k="disk"     v="2.4G / 3.0G (78%)" c="var(--warn)" />
+
+      <div style={{ marginTop: 14, fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>active sessions</div>
+      {SESSIONS.filter(s => s.workspace === w.name).slice(0, 4).map(s => (
+        <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 0", borderBottom: "1px dashed var(--border)" }}>
+          <StateGlyph state={s.state} />
+          <span className="tui-num" style={{ color: "var(--text-dim)" }}>{s.issue}</span>
+          <span style={{ color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+        </div>
+      ))}
+      {SESSIONS.filter(s => s.workspace === w.name).length === 0 &&
+        <div style={{ color: "var(--text-faint)", padding: "4px 0" }}>no active sessions</div>
+      }
+
+      <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <Key k="w" label={w.watch ? "unwatch" : "watch"} accent />
+        <Key k="m" label="members" />
+        <Key k="o" label="browser" />
+        <Key k="c" label="clean cache" />
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * LOGS (6)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function LogsView() {
+  const [level, setLevel] = useState("all");
+  const [follow, setFollow] = useState(true);
+  const ref = useRef(null);
+
+  const rows = useMemo(() => LOG_LINES.filter(l => level === "all" || l[1] === level), [level]);
+
+  const levels = ["all", "INFO", "DEBUG", "WARN", "ERROR"];
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.target.tagName === "INPUT") return;
+      if (e.key === "f") { setFollow(f => !f); e.preventDefault(); }
+      if (e.key === "[" || e.key === "]") {
+        const ix = levels.indexOf(level);
+        setLevel(levels[(ix + (e.key === "]" ? 1 : -1) + levels.length) % levels.length]);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [level]);
+
+  useEffect(() => { if (follow && ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [rows, follow]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {levels.map(l => (
+          <button key={l} onClick={() => setLevel(l)}
+            style={{
+              background: l === level ? "var(--accent-faint)" : "transparent",
+              border: `1px solid ${l === level ? "var(--accent-dim)" : "var(--border)"}`,
+              color: l === level ? "var(--accent)" : (LOG_LEVEL_META[l]?.color || "var(--text-dim)"),
+              fontFamily: "var(--mono)", fontSize: 11.5,
+              padding: "3px 9px", cursor: "pointer", borderRadius: 2,
+            }}>{l}</button>
+        ))}
+        <span style={{ marginLeft: 4, fontSize: 10.5, color: "var(--text-mute)" }}>[ ] cycle</span>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setFollow(f => !f)}
+          style={{
+            background: follow ? "var(--accent-faint)" : "transparent",
+            border: `1px solid ${follow ? "var(--accent-dim)" : "var(--border)"}`,
+            color: follow ? "var(--accent)" : "var(--text-dim)",
+            fontFamily: "var(--mono)", fontSize: 11.5, padding: "3px 9px", cursor: "pointer", borderRadius: 2,
+          }}>
+          {follow ? "● following" : "○ paused"}
+        </button>
+        <Key k="f" label="toggle" />
+        <Key k="c" label="clear" />
+        <Key k="s" label="save" />
+      </div>
+      <Panel title="daemon.log" right={<span style={{ color: "var(--text-faint)" }}>~/.multica/daemon.log</span>} style={{ flex: 1, minHeight: 0 }} pad={0} scrollable contentRef={ref}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12.5, padding: "8px 14px" }}>
+          {rows.map((l, i) => {
+            const c = LOG_LEVEL_META[l[1]]?.color || "var(--text-dim)";
+            return (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "70px 56px 80px 1fr", gap: 8, padding: "1.5px 0" }}>
+                <span style={{ color: "var(--text-mute)" }} className="tui-num">{l[0]}</span>
+                <span style={{ color: c, fontWeight: l[1] === "ERROR" ? 600 : 400 }}>{l[1]}</span>
+                <span style={{ color: "var(--text-faint)" }}>{l[2]}</span>
+                <span style={{ color: "var(--text-dim)" }}>{l[3]}</span>
+              </div>
+            );
+          })}
+          {follow && (
+            <div style={{ marginTop: 4, color: "var(--text-faint)" }}>
+              <span className="tui-caret" style={{ color: "var(--accent)" }}>▌</span>
+              <span style={{ marginLeft: 4 }}>tailing…</span>
+            </div>
+          )}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CONFIG (7)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+function ConfigView() {
+  const [profile, setProfile] = useState("default");
+  const cfg = CONFIG;
+  const agentKeys = Object.keys(cfg.agents);
+  const [agentSel, setAgentSel] = useState(agentKeys[0]);
+  const agent = cfg.agents[agentSel];
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.05fr 1.05fr", gap: 12, height: "100%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+        <Panel title="profiles" right={<span style={{ color: "var(--text-faint)" }}>~/.multica/profiles</span>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5 }}>
+            {PROFILES.map(p => {
+              const active = p.id === profile;
+              return (
+                <div key={p.id} className="tui-row"
+                  onClick={() => setProfile(p.id)}
+                  style={{
+                    display: "grid", gridTemplateColumns: "16px 1fr auto",
+                    alignItems: "center", gap: 8, padding: "8px 10px",
+                    border: `1px solid ${active ? "var(--accent-dim)" : "var(--border)"}`,
+                    background: active ? "var(--accent-faint)" : "transparent",
+                    cursor: "pointer",
+                  }}>
+                  <span style={{ color: active ? "var(--accent)" : "var(--text-mute)" }}>{active ? "◉" : "○"}</span>
+                  <div>
+                    <div style={{ color: active ? "var(--accent)" : "var(--text)" }}>{p.id}</div>
+                    <div style={{ color: "var(--text-faint)", fontSize: 11 }}>{p.server}</div>
+                  </div>
+                  <div style={{ textAlign: "right", fontSize: 11 }}>
+                    {p.active
+                      ? <span style={{ color: "var(--ok)" }}>● running</span>
+                      : <span style={{ color: "var(--text-mute)" }}>○ stopped</span>}
+                    <div style={{ color: "var(--text-faint)" }} className="tui-num">{p.uptime}</div>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ paddingTop: 8, marginTop: 4, borderTop: "1px dashed var(--border)", display: "flex", flexWrap: "wrap", gap: 10, fontSize: 11.5 }}>
+              <Key k="n" label="new profile" />
+              <Key k="D" label="delete" />
+              <Key k="↵" label="switch" accent />
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="budgets" style={{ flex: 1 }}>
+          <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+            <KV k="daily cap"     v={`$${cfg.budgets.daily_cap_usd.toFixed(2)}`} />
+            <KV k="daily used"    v={`$${cfg.budgets.daily_used_usd.toFixed(2)}`} c="var(--accent)" />
+            <KV k="per-run cap"   v={`$${cfg.budgets.per_run_cap_usd.toFixed(2)}`} />
+            <KV k="warn at"       v={`${cfg.budgets.warn_pct}%`} />
+            <div style={{ marginTop: 8 }}>
+              <Bar pct={(cfg.budgets.daily_used_usd / cfg.budgets.daily_cap_usd) * 100} width={26} color="var(--accent)" />
+            </div>
+            <div style={{ marginTop: 8, color: "var(--text-faint)", fontSize: 11.5 }}>
+              <span style={{ color: "var(--ok)" }}>● within budget</span> · {Math.round(cfg.budgets.daily_used_usd / cfg.budgets.daily_cap_usd * 100)}% used today
+            </div>
+          </div>
+        </Panel>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+        <Panel title="server" right={<span style={{ color: "var(--ok)" }}>● reachable</span>}>
+          <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>
+            <CfgRow k="app_url"    v={cfg.server.app_url} />
+            <CfgRow k="server_url" v={cfg.server.server_url} />
+            <CfgRow k="user"       v={`${cfg.auth.user} · ${cfg.auth.org}`} c="var(--accent)" />
+            <CfgRow k="token"      v={`${cfg.auth.token_prefix} · ${cfg.auth.expires_in} left`} />
+          </div>
+        </Panel>
+
+        <Panel title="daemon" right={<span style={{ color: "var(--ok)" }}>● up · pid 48132</span>} style={{ flex: 1 }} scrollable>
+          <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>
+            <CfgRow k="poll_interval"        v={cfg.daemon.poll_interval}        envDefault />
+            <CfgRow k="heartbeat_interval"   v={cfg.daemon.heartbeat_interval}   envDefault />
+            <CfgRow k="agent_timeout"        v={cfg.daemon.agent_timeout}        envDefault />
+            <CfgRow k="max_concurrent_tasks" v={cfg.daemon.max_concurrent_tasks} envDefault />
+            <CfgRow k="daemon_id"            v={cfg.daemon.daemon_id} />
+            <CfgRow k="device_name"          v={cfg.daemon.device_name} />
+            <CfgRow k="runtime_name"         v={cfg.daemon.runtime_name} />
+            <CfgRow k="workspaces_root"      v={cfg.daemon.workspaces_root} />
+            <CfgRow k="log_level"            v={cfg.daemon.log_level}            envDefault />
+            <CfgRow k="log_path"             v={cfg.daemon.log_path} />
+
+            <div style={{ marginTop: 14, fontSize: 11, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.05em" }}>tui · complementary</div>
+            <CfgRow k="default_view"          v={cfg.tui.default_view} tui />
+            <CfgRow k="notify_on_needs_input" v={cfg.tui.notify_on_needs_input} tui />
+            <CfgRow k="autostart"             v={cfg.tui.autostart} tui />
+            <CfgRow k="theme"                 v={cfg.tui.theme} tui />
+            <CfgRow k="follow_focus_on_alert" v={String(cfg.tui.follow_focus_on_alert)} tui />
+            <CfgRow k="confirm_destructive"   v={String(cfg.tui.confirm_destructive)} tui />
+            <CfgRow k="show_thinking"         v={cfg.tui.show_thinking} tui />
+            <CfgRow k="transcript_density"    v={cfg.tui.transcript_density} tui />
+          </div>
+        </Panel>
+      </div>
+
+      <Panel title="per-agent overrides" right={<span style={{ color: "var(--text-faint)" }}>{agentKeys.length} configured</span>} style={{ minHeight: 0 }} scrollable>
+        <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+            {agentKeys.map(k => (
+              <button key={k} onClick={() => setAgentSel(k)}
+                style={{
+                  background: k === agentSel ? "var(--accent-faint)" : "transparent",
+                  border: `1px solid ${k === agentSel ? "var(--accent-dim)" : "var(--border)"}`,
+                  color: k === agentSel ? "var(--accent)" : "var(--text-dim)",
+                  fontFamily: "var(--mono)", fontSize: 11.5, padding: "3px 9px",
+                  cursor: "pointer", borderRadius: 2,
+                }}>{k}</button>
+            ))}
+          </div>
+
+          <CfgRow k="path"  v={agent.path} />
+          <CfgRow k="model" v={agent.model} c="var(--text)" />
+          <CfgRow k="concurrency cap" v={agent.concurrency} />
+
+          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>env</div>
+          {Object.entries(agent.env).length === 0
+            ? <div style={{ color: "var(--text-mute)", fontSize: 11.5, padding: "4px 0" }}>none set · using defaults</div>
+            : Object.entries(agent.env).map(([k, v]) => (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px dashed var(--border)", fontSize: 12 }}>
+                  <span style={{ color: "var(--text-faint)" }}>{k}</span>
+                  <span style={{ color: "var(--text-dim)" }}>{v}</span>
+                </div>
+              ))}
+
+          <div style={{ marginTop: 14, padding: 10, border: "1px dashed var(--border)", fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.6 }}>
+            override path/model with <span style={{ color: "var(--accent)" }}>MULTICA_{agentSel.split("-")[0].toUpperCase()}_PATH</span> or <span style={{ color: "var(--accent)" }}>MULTICA_{agentSel.split("-")[0].toUpperCase()}_MODEL</span>.
+            <br />reload with <span style={{ color: "var(--accent)" }}>multica daemon restart</span>.
+          </div>
+
+          <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 10 }}>
+            <Key k="e" label="edit" accent />
+            <Key k="↵" label="reload daemon" />
+            <Key k="⌃R" label="reset defaults" />
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function CfgRow({ k, v, env, envDefault, tui }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px dashed var(--border)" }}>
+      <span style={{ color: "var(--text-faint)" }}>
+        {k}
+        {env        && <span style={{ color: "var(--text-mute)", marginLeft: 6, fontSize: 10 }}>ENV</span>}
+        {envDefault && <span style={{ color: "var(--text-mute)", marginLeft: 6, fontSize: 10 }}>FLAG·ENV</span>}
+        {tui        && <span style={{ color: "var(--accent-dim)", marginLeft: 6, fontSize: 10 }}>TUI</span>}
+      </span>
+      <span style={{ color: "var(--text)" }} className="tui-num">{v}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * HELP (?)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const HELP_GROUPS = [
+  {
+    title: "global",
+    rows: [
+      ["1 – 7",       "jump to view by number"],
+      ["tab / ⇧tab",  "next / previous view"],
+      [":",           "command palette"],
+      ["?",           "this help"],
+      ["esc",         "close overlay · detach"],
+      ["q",           "quit (the daemon keeps running)"],
+    ],
+  },
+  {
+    title: "lists · everywhere",
+    rows: [
+      ["j  /  ↓",     "move down"],
+      ["k  /  ↑",     "move up"],
+      ["g g",         "first row"],
+      ["G",           "last row"],
+      ["⌃d / ⌃u",     "half-page down / up"],
+      ["[  ]",        "cycle filter pills (left / right)"],
+      ["/",           "search the list"],
+      ["↵  /  →",     "open / attach / drill"],
+      ["esc",         "clear filter, then go back"],
+    ],
+  },
+  {
+    title: "overview",
+    rows: [
+      ["h j k l  /  ←↓↑→", "move focus between cards"],
+      ["↵",                "drill into the focused card's source view"],
+    ],
+  },
+  {
+    title: "sessions",
+    rows: [
+      ["*",  "jump to next needs-input session"],
+      ["r",  "reply to the focused session"],
+      ["b",  "background (/bg) — keep running, return to list"],
+      ["t",  "tail this session's logs"],
+      ["d",  "show diff for this run"],
+      ["p",  "approve / deny pending permissions"],
+      ["x",  "cancel"],
+      ["!",  "restart with a new prompt"],
+    ],
+  },
+  {
+    title: "issues",
+    rows: [
+      ["n", "new issue"],
+      ["a", "assign…"],
+      ["s", "set status"],
+      ["c", "add comment"],
+    ],
+  },
+  {
+    title: "workspaces & runtimes",
+    rows: [
+      ["w", "watch / unwatch this workspace"],
+      ["m", "list members"],
+      ["o", "open in browser"],
+      ["t", "test runtime handshake"],
+      ["↺", "rescan $PATH for agent CLIs"],
+    ],
+  },
+  {
+    title: "logs",
+    rows: [
+      ["f", "toggle follow"],
+      ["c", "clear screen (file is untouched)"],
+      ["s", "save current view to a file"],
+    ],
+  },
+  {
+    title: "command palette · type :",
+    rows: [
+      [":login",          "browser auth"],
+      [":daemon stop",    "stop the daemon"],
+      [":daemon restart", "stop + start"],
+      [":profile <name>", "switch profile (relaunches)"],
+      [":new issue",      "open the issue composer"],
+      [":theme",          "cycle warm-dark · paper · mono"],
+      [":rescan agents",  "re-detect agent CLIs on PATH"],
+    ],
+  },
+];
+
+function HelpView({ onClose }) {
+  return (
+    <Panel title="help · keys & commands" right={<span style={{ color: "var(--text-faint)" }}>press ? again to close</span>} style={{ height: "100%" }} scrollable accent>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 18, fontSize: 12.5 }}>
+        {HELP_GROUPS.map(g => (
+          <div key={g.title}>
+            <div style={{ color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 11, marginBottom: 6, borderBottom: "1px dashed var(--border)", paddingBottom: 4 }}>{g.title}</div>
+            {g.rows.map(([k, l], i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "130px 1fr", padding: "2px 0", borderBottom: "1px dashed var(--border)" }}>
+                <span style={{ color: "var(--text)" }}>{k}</span>
+                <span style={{ color: "var(--text-dim)" }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 18, padding: 12, border: "1px solid var(--border)", background: "var(--surface)" }}>
+        <div style={{ color: "var(--accent)", fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>tips</div>
+        <ul style={{ margin: 0, paddingLeft: 18, color: "var(--text-dim)", lineHeight: 1.7, fontSize: 12.5 }}>
+          <li>You can use the mouse anywhere — click rows, tabs, filter pills, key chips.</li>
+          <li>Closing this TUI does <strong style={{ color: "var(--text)" }}>not</strong> stop the daemon. Use <span style={{ color: "var(--accent)" }}>:daemon stop</span> or <span style={{ color: "var(--accent)" }}>multica daemon stop</span> from your shell.</li>
+          <li>The diamond <span style={{ color: "var(--accent)" }}>◆</span> always means "a session is waiting for you." It appears in the topbar, the activity stream, and the session row.</li>
+          <li>Holding <span style={{ color: "var(--accent)" }}>⇧</span> while moving extends a multi-select (e.g. to cancel several sessions).</li>
+        </ul>
+      </div>
+    </Panel>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * COMMAND PALETTE
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const PALETTE_ITEMS = [
+  { k: "login",            label: "Authenticate via browser",                    kind: "auth"   },
+  { k: "logout",           label: "Sign out",                                    kind: "auth"   },
+  { k: "daemon start",     label: "Start the agent daemon",                      kind: "daemon" },
+  { k: "daemon stop",      label: "Stop the agent daemon",                       kind: "daemon" },
+  { k: "daemon restart",   label: "Restart the agent daemon",                    kind: "daemon" },
+  { k: "daemon logs -f",   label: "Tail daemon logs",                            kind: "daemon" },
+  { k: "profile default",  label: "Switch to profile · default",                 kind: "profile"},
+  { k: "profile staging",  label: "Switch to profile · staging",                 kind: "profile"},
+  { k: "new issue",        label: "Compose a new issue",                         kind: "issue"  },
+  { k: "watch multica-platform", label: "Watch workspace",                       kind: "ws"     },
+  { k: "open app.multica.ai/issues", label: "Open in browser",                   kind: "ext"    },
+  { k: "theme cycle",      label: "Cycle theme · warm dark · paper · mono",      kind: "tui"    },
+  { k: "export config",    label: "Export profile config to ./multica.toml",     kind: "cfg"    },
+  { k: "rescan agents",    label: "Rescan $PATH for agent CLIs",                 kind: "daemon" },
+];
+
+function CommandPalette({ onClose }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const items = useMemo(() => PALETTE_ITEMS.filter(i => (i.k + " " + i.label).toLowerCase().includes(q.toLowerCase())), [q]);
+  useEffect(() => { setSel(0); }, [q]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)",
+      display: "flex", justifyContent: "center", alignItems: "flex-start", paddingTop: 100, zIndex: 50,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 620, background: "var(--bg)",
+        border: "1px solid var(--accent-dim)",
+        boxShadow: "0 12px 60px rgba(0,0,0,0.6)",
+        fontFamily: "var(--mono)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
+          <span style={{ color: "var(--accent)", fontSize: 14 }}>:</span>
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)}
+            placeholder="run a command…"
+            style={{ flex: 1, background: "transparent", border: 0, outline: 0, color: "var(--text)", fontFamily: "var(--mono)", fontSize: 14 }} />
+          <span className="tui-caret" style={{ color: "var(--accent)" }}>▌</span>
+          <span style={{ color: "var(--text-faint)", fontSize: 11 }}>esc to close</span>
+        </div>
+        <div style={{ maxHeight: 320, overflowY: "auto" }}>
+          {items.map((it, i) => (
+            <div key={it.k} onClick={onClose}
+              onMouseEnter={() => setSel(i)}
+              style={{
+                display: "grid", gridTemplateColumns: "70px 1fr 90px", gap: 10,
+                padding: "8px 14px",
+                background: i === sel ? "var(--accent-faint)" : "transparent",
+                borderLeft: `2px solid ${i === sel ? "var(--accent)" : "transparent"}`,
+                cursor: "pointer", fontSize: 13,
+              }}>
+              <span style={{ color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10.5 }}>{it.kind}</span>
+              <span><span style={{ color: "var(--accent)" }}>:</span><span style={{ color: "var(--text)" }}>{it.k}</span></span>
+              <span style={{ color: "var(--text-faint)", textAlign: "right" }}>{it.label}</span>
+            </div>
+          ))}
+          {items.length === 0 && <div style={{ padding: 16, color: "var(--text-faint)" }}>no command matches "{q}"</div>}
+        </div>
+        <div style={{ display: "flex", gap: 16, padding: "8px 14px", borderTop: "1px solid var(--border)", color: "var(--text-faint)", fontSize: 11 }}>
+          <span>↑↓ select</span>
+          <span>↵ run</span>
+          <span>esc close</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ONBOARDING WIZARD
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const ONBOARD_STEPS = [
+  { id: "server",     title: "Server",         sub: "Where does your daemon talk to?" },
+  { id: "auth",       title: "Authenticate",   sub: "Sign in to discover your workspaces" },
+  { id: "workspaces", title: "Workspaces",     sub: "Pick the ones this daemon should watch" },
+  { id: "runtimes",   title: "Agent CLIs",     sub: "We found these on your PATH" },
+  { id: "daemon",     title: "Daemon tuning",  sub: "Sensible defaults — tweak if you like" },
+  { id: "review",     title: "Review & start", sub: "We'll write ~/.multica and launch the daemon" },
+];
+
+function OnboardingView({ onFinish }) {
+  const [step, setStep] = useState(0);
+  const cur = ONBOARD_STEPS[step];
+
+  return (
+    <div style={{ height: "100%", display: "grid", gridTemplateColumns: "260px 1fr", gap: 12 }}>
+      <Panel title="first-run setup" right={<span style={{ color: "var(--accent)" }}>◆</span>}>
+        <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+          {ONBOARD_STEPS.map((s, i) => {
+            const done   = i < step;
+            const active = i === step;
+            return (
+              <div key={s.id} onClick={() => setStep(i)} className="tui-row"
+                style={{
+                  padding: "8px 10px", cursor: "pointer",
+                  borderLeft: `2px solid ${active ? "var(--accent)" : "transparent"}`,
+                  background: active ? "var(--accent-faint)" : "transparent",
+                }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    color: done ? "var(--ok)" : active ? "var(--accent)" : "var(--text-mute)",
+                    fontSize: 13, width: 16,
+                  }}>{done ? "✓" : active ? "▸" : `${i + 1}`}</span>
+                  <span style={{ color: active ? "var(--accent)" : done ? "var(--text-dim)" : "var(--text-faint)" }}>{s.title}</span>
+                </div>
+                {active && <div style={{ paddingLeft: 26, color: "var(--text-faint)", fontSize: 11.5, marginTop: 2 }}>{s.sub}</div>}
+              </div>
+            );
+          })}
+          <div style={{ marginTop: 18, padding: 10, border: "1px dashed var(--border)", fontSize: 11.5, color: "var(--text-faint)" }}>
+            this writes to <span style={{ color: "var(--text-dim)" }}>~/.multica/profiles/default/config.toml</span>
+            <br /> you can edit it later from the Config tab.
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title={`step ${step + 1} / ${ONBOARD_STEPS.length}  ·  ${cur.title}`}
+        right={
+          <span style={{ display: "inline-flex", gap: 14 }}>
+            {step > 0 && <Key k="←" label="back" onClick={() => setStep(s => Math.max(0, s - 1))} />}
+            {step < ONBOARD_STEPS.length - 1 && <Key k="→" label="next" accent onClick={() => setStep(s => Math.min(ONBOARD_STEPS.length - 1, s + 1))} />}
+            {step === ONBOARD_STEPS.length - 1 && <Key k="↵" label="launch daemon" accent onClick={onFinish} />}
+          </span>
+        }
+        style={{ minHeight: 0 }} scrollable>
+        <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+          {cur.id === "server"     && <StepServer />}
+          {cur.id === "auth"       && <StepAuth />}
+          {cur.id === "workspaces" && <StepWorkspaces />}
+          {cur.id === "runtimes"   && <StepRuntimes />}
+          {cur.id === "daemon"     && <StepDaemon />}
+          {cur.id === "review"     && <StepReview />}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function StepServer() {
+  const [sel, setSel] = useState("cloud");
+  const opts = [
+    { id: "cloud", title: "Multica Cloud", sub: "app.multica.ai · default", env: "" },
+    { id: "self",  title: "Self-hosted",   sub: "point at your own server", env: "MULTICA_APP_URL=https://app.acme.dev\nMULTICA_SERVER_URL=wss://api.acme.dev/ws" },
+    { id: "air",   title: "Air-gapped (local)", sub: "no remote · daemon-only", env: "MULTICA_OFFLINE=1" },
+  ];
+  return (
+    <div>
+      <div style={{ color: "var(--text-faint)", marginBottom: 10 }}>Pick one. You can change this any time with <span style={{ color: "var(--accent)" }}>multica config set</span> or from the Config tab.</div>
+      {opts.map(o => (
+        <div key={o.id} onClick={() => setSel(o.id)} className="tui-row"
+          style={{
+            display: "flex", alignItems: "flex-start", gap: 12,
+            padding: 12, marginBottom: 8,
+            border: `1px solid ${o.id === sel ? "var(--accent-dim)" : "var(--border)"}`,
+            background: o.id === sel ? "var(--accent-faint)" : "transparent",
+            cursor: "pointer",
+          }}>
+          <span style={{ color: o.id === sel ? "var(--accent)" : "var(--text-mute)", fontSize: 16, lineHeight: "20px" }}>{o.id === sel ? "◉" : "○"}</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: o.id === sel ? "var(--accent)" : "var(--text)", fontWeight: 500 }}>{o.title}</div>
+            <div style={{ color: "var(--text-faint)", fontSize: 12 }}>{o.sub}</div>
+            {o.env && <pre style={{ margin: "8px 0 0", color: "var(--text-dim)", fontSize: 12, fontFamily: "var(--mono)" }}>{o.env}</pre>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StepAuth() {
+  const [done, setDone] = useState(false);
+  return (
+    <div>
+      {!done ? (
+        <>
+          <div style={{ color: "var(--text-faint)", marginBottom: 10 }}>Two ways to authenticate. The daemon creates a 90-day personal token either way.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div onClick={() => setDone(true)} className="tui-row"
+              style={{ padding: 16, border: "1px solid var(--accent-dim)", background: "var(--accent-faint)", cursor: "pointer" }}>
+              <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 14 }}>↗ Open browser</div>
+              <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 6 }}>opens <span style={{ color: "var(--text)" }}>app.multica.ai/cli/auth</span> with a one-time code. Recommended.</div>
+            </div>
+            <div onClick={() => setDone(true)} className="tui-row"
+              style={{ padding: 16, border: "1px solid var(--border)", cursor: "pointer" }}>
+              <div style={{ color: "var(--text)", fontWeight: 600, fontSize: 14 }}>⎘ Paste token</div>
+              <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 6 }}>useful for headless / remote machines. Create one at <span style={{ color: "var(--accent)" }}>app.multica.ai/settings/tokens</span>.</div>
+              <div style={{ marginTop: 10, padding: "6px 8px", border: "1px solid var(--border)", color: "var(--text-faint)", fontSize: 12 }}>
+                <span style={{ color: "var(--accent)" }}>›</span> mlt_••••••••••••••••••<span className="tui-caret" style={{ color: "var(--accent)" }}>▌</span>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div style={{ padding: 12, border: "1px solid var(--ok)", background: "rgba(138,166,122,0.07)" }}>
+          <div style={{ color: "var(--ok)", fontWeight: 600, marginBottom: 6 }}>✓ Authenticated as @you</div>
+          <div style={{ color: "var(--text-dim)", fontSize: 12 }}>token <span className="tui-num" style={{ color: "var(--text)" }}>mlt_•••2f8a</span> · expires in 90 days · scoped to <span style={{ color: "var(--text)" }}>org-acme</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepWorkspaces() {
+  const [picked, setPicked] = useState({ ws_core: true, ws_platform: true, ws_docs: true });
+  return (
+    <div>
+      <div style={{ color: "var(--text-faint)", marginBottom: 10 }}>We found {WORKSPACES.length} workspaces. The daemon only processes tasks for the ones you watch — pick what this machine should handle.</div>
+      <div style={{ border: "1px solid var(--border)" }}>
+        {WORKSPACES.map(w => {
+          const on = !!picked[w.id];
+          return (
+            <div key={w.id}
+              onClick={() => setPicked(p => ({ ...p, [w.id]: !on }))}
+              className="tui-row"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "30px 1.6fr 80px 80px 120px",
+                padding: "9px 12px", borderBottom: "1px solid var(--border)",
+                cursor: "pointer",
+                background: on ? "var(--accent-faint)" : "transparent",
+                alignItems: "center",
+              }}>
+              <span style={{ color: on ? "var(--accent)" : "var(--text-mute)" }}>{on ? "[x]" : "[ ]"}</span>
+              <span style={{ color: on ? "var(--accent)" : "var(--text)" }}>{w.name}</span>
+              <span className="tui-num" style={{ color: "var(--text-faint)" }}>{w.members} ppl</span>
+              <span className="tui-num" style={{ color: "var(--text-faint)" }}>{w.issues} issues</span>
+              <span style={{ color: "var(--text-faint)" }}>{w.role}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-faint)" }}>
+        space toggle · a select all · A clear all
+      </div>
+    </div>
+  );
+}
+
+function StepRuntimes() {
+  return (
+    <div>
+      <div style={{ color: "var(--text-faint)", marginBottom: 10 }}>
+        Detected agent CLIs on <span style={{ color: "var(--text)" }}>$PATH</span>. The daemon registers one runtime per CLI per watched workspace.
+      </div>
+      <div style={{ border: "1px solid var(--border)" }}>
+        {RUNTIMES.map((r, i) => {
+          const ok = r.status === "ready";
+          return (
+            <div key={r.cli} style={{
+              display: "grid",
+              gridTemplateColumns: "26px 100px 90px 1.5fr 110px 90px",
+              padding: "9px 12px",
+              borderBottom: i < RUNTIMES.length - 1 ? "1px solid var(--border)" : "none",
+              alignItems: "center", fontSize: 12.5,
+            }}>
+              <span style={{ color: ok ? "var(--ok)" : "var(--text-mute)" }}>{ok ? "[x]" : "[ ]"}</span>
+              <span style={{ color: ok ? "var(--text)" : "var(--text-dim)" }}>{r.cli}</span>
+              <span className="tui-num" style={{ color: "var(--text-faint)" }}>{r.version}</span>
+              <span style={{ color: "var(--text-faint)" }}>{r.path}</span>
+              <span style={{ color: "var(--text-dim)" }}>{r.model}</span>
+              <span style={{ color: ok ? "var(--ok)" : "var(--text-faint)" }}>{r.status}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 12, padding: 10, border: "1px dashed var(--border)", fontSize: 12, color: "var(--text-faint)" }}>
+        Don't see what you expect? You can pin custom paths/models via env vars on the next step — e.g. <span style={{ color: "var(--accent)" }}>MULTICA_CLAUDE_PATH</span>, <span style={{ color: "var(--accent)" }}>MULTICA_CLAUDE_MODEL</span>.
+      </div>
+    </div>
+  );
+}
+
+function StepDaemon() {
+  const fields = [
+    { k: "poll_interval",        v: "3s",  desc: "how often to ask the server for new tasks" },
+    { k: "heartbeat_interval",   v: "15s", desc: "how often this daemon pings the server" },
+    { k: "agent_timeout",        v: "2h",  desc: "kill an agent that goes silent this long" },
+    { k: "max_concurrent_tasks", v: "20",  desc: "ceiling across all runtimes" },
+  ];
+  const tuiFields = [
+    { k: "notify_on_needs_input", v: "desktop + sound · 10s" },
+    { k: "autostart",              v: "on login (launchd)"   },
+    { k: "default view",           v: "Sessions"             },
+    { k: "theme",                  v: "warm dark"            },
+  ];
+  return (
+    <div>
+      <div style={{ color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 11, marginBottom: 6 }}>daemon</div>
+      <div style={{ border: "1px solid var(--border)" }}>
+        {fields.map(f => (
+          <div key={f.k} style={{ display: "grid", gridTemplateColumns: "200px 1fr 90px", padding: "9px 12px", borderBottom: "1px solid var(--border)", alignItems: "center", fontSize: 12.5 }}>
+            <span style={{ color: "var(--text)" }}>{f.k}</span>
+            <span style={{ color: "var(--text-faint)" }}>{f.desc}</span>
+            <span style={{ textAlign: "right", color: "var(--accent)" }} className="tui-num">{f.v}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 11, margin: "14px 0 6px" }}>this TUI · complementary settings</div>
+      <div style={{ border: "1px solid var(--border)" }}>
+        {tuiFields.map(f => (
+          <div key={f.k} style={{ display: "grid", gridTemplateColumns: "200px 1fr", padding: "9px 12px", borderBottom: "1px solid var(--border)", alignItems: "center", fontSize: 12.5 }}>
+            <span style={{ color: "var(--text)" }}>{f.k}</span>
+            <span style={{ color: "var(--text-dim)" }}>{f.v}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-faint)" }}>
+        ← prev field · → next · tab edit · ↵ next step
+      </div>
+    </div>
+  );
+}
+
+function StepReview() {
+  return (
+    <div>
+      <div style={{ color: "var(--text-faint)", marginBottom: 10 }}>About to write <span style={{ color: "var(--text)" }}>~/.multica/profiles/default/config.toml</span> and start the daemon.</div>
+      <pre style={{
+        margin: 0, padding: 14,
+        background: "var(--surface)", border: "1px solid var(--border)",
+        fontFamily: "var(--mono)", fontSize: 12.5, color: "var(--text-dim)",
+        whiteSpace: "pre", overflow: "auto",
+      }}>
+{`# multica · profile=default
+[server]
+  app_url    = "https://app.multica.ai"
+  server_url = "wss://api.multica.ai/ws"
+
+[daemon]
+  poll_interval        = "3s"
+  heartbeat_interval   = "15s"
+  agent_timeout        = "2h"
+  max_concurrent_tasks = 20
+  workspaces_root      = "~/multica_workspaces"
+
+[watch]
+  workspaces = ["multica-core", "multica-platform", "multica-docs"]
+
+[agents.claude]
+  path  = "/opt/homebrew/bin/claude"
+  model = "sonnet-4.5"
+
+[agents.codex]
+  path  = "/opt/homebrew/bin/codex"
+  model = "gpt-5.1"
+
+[tui]                                                 # added by setup wizard
+  default_view          = "sessions"
+  notify_on_needs_input = "desktop+sound:10s"
+  autostart             = "launchd"
+  theme                 = "warm-dark"`}
+      </pre>
+      <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
+        <Key k="↵" label="write & launch" accent />
+        <Key k="e" label="edit toml" />
+        <Key k="←" label="back" />
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Routes
+ * ─────────────────────────────────────────────────────────────────────────── */
+const ROUTES = [
+  { id: "overview",   key: "1", label: "Overview",   short: "overview" },
+  { id: "sessions",   key: "2", label: "Sessions",   short: "sessions" },
+  { id: "issues",     key: "3", label: "Issues",     short: "issues"   },
+  { id: "runtimes",   key: "4", label: "Runtimes",   short: "runtimes" },
+  { id: "workspaces", key: "5", label: "Workspaces", short: "workspaces"},
+  { id: "logs",       key: "6", label: "Logs",       short: "logs"     },
+  { id: "config",     key: "7", label: "Config",     short: "config"   },
+];
+
+const STATUS_HINTS = {
+  overview:   [["h j k l", "focus"], ["↵", "drill"], ["?", "help"], [":", "cmd"]],
+  sessions:   [["j k", "row"], ["[ ]", "filter"], ["*", "next needs-input"], ["↵", "attach"], ["/", "search"], ["?", "help"]],
+  attach:     [["←", "detach"], ["j k", "scroll"], ["r", "reply"], ["b", "background"], ["t", "tail"], ["?", "help"]],
+  issues:     [["j k", "row"], ["[ ]", "filter"], ["↵", "open run"], ["n", "new"], ["a", "assign"], ["?", "help"]],
+  runtimes:   [["j k", "row"], ["↵", "configure"], ["t", "test"], ["d", "disable"], ["↺", "rescan"], ["?", "help"]],
+  workspaces: [["j k", "row"], ["w", "watch"], ["m", "members"], ["o", "browser"], ["?", "help"]],
+  logs:       [["f", "follow"], ["[ ]", "level"], ["c", "clear"], ["s", "save"], ["?", "help"]],
+  config:     [["j k", "row"], ["e", "edit"], ["↵", "reload daemon"], ["?", "help"]],
+  help:       [["?", "close"], ["esc", "close"]],
+  onboarding: [["← →", "step"], ["space", "toggle"], ["↵", "next"], ["esc", "skip"]],
+};
+
+const DAEMON = { pid: 48132, profile: "default", uptime: "4h 32m 18s", version: "0.18.2" };
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * App
+ * ─────────────────────────────────────────────────────────────────────────── */
+function App() {
+  const [route, setRoute] = useState("overview");
+  const [attachId, setAttachId] = useState(null);
+  const [help, setHelp] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
+  const [sessionsFilter, setSessionsFilter] = useState(null);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
+        if (e.key === "Escape") e.target.blur();
+        return;
+      }
+      if (onboarding) {
+        if (e.key === "Escape") setOnboarding(false);
+        return;
+      }
+      if (e.key === "?") { setHelp(h => !h); return; }
+      if (e.key === ":") { setPalette(true); e.preventDefault(); return; }
+      if (e.key === "Escape") {
+        if (palette) setPalette(false);
+        else if (help) setHelp(false);
+        else if (attachId) setAttachId(null);
+        return;
+      }
+      if (e.key >= "1" && e.key <= "7") {
+        const r = ROUTES.find(r => r.key === e.key);
+        if (r) { setRoute(r.id); setAttachId(null); }
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const idx = ROUTES.findIndex(r => r.id === route);
+        const next = (idx + (e.shiftKey ? -1 : 1) + ROUTES.length) % ROUTES.length;
+        setRoute(ROUTES[next].id);
+        setAttachId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [route, help, palette, attachId, onboarding]);
+
+  const handleJump = useCallback((dest, opts = {}) => {
+    if (dest === "sessions") setSessionsFilter(opts.filter || null);
+    setRoute(dest);
+  }, []);
+
+  const currentHint = onboarding ? STATUS_HINTS.onboarding
+                    : help        ? STATUS_HINTS.help
+                    : attachId    ? STATUS_HINTS.attach
+                    :               STATUS_HINTS[route];
+
+  return (
+    <div style={{
+      width: "100vw",
+      height: "100vh",
+      background: "var(--bg)",
+      overflow: "hidden",
+      display: "flex", flexDirection: "column",
+      position: "relative",
+      fontFamily: "var(--mono)",
+    }}>
+      <TopBar daemon={DAEMON} attachId={attachId} />
+      <TabBar route={route} setRoute={(r) => { setRoute(r); setAttachId(null); }} attachId={attachId} setAttachId={setAttachId} setHelp={setHelp} help={help} />
+
+      <div style={{ flex: 1, padding: 12, minHeight: 0, position: "relative", overflow: "hidden" }}>
+        {onboarding ? (
+          <OnboardingView onFinish={() => setOnboarding(false)} />
+        ) : help ? (
+          <HelpView onClose={() => setHelp(false)} />
+        ) : attachId ? (
+          <SessionAttachView sessionId={attachId} onDetach={() => setAttachId(null)} />
+        ) : route === "overview"   ? <OverviewView daemon={DAEMON} onJump={handleJump} />
+          : route === "sessions"   ? <SessionsView initialFilter={sessionsFilter} onAttach={(id) => setAttachId(id)} />
+          : route === "issues"     ? <IssuesView />
+          : route === "runtimes"   ? <RuntimesView />
+          : route === "workspaces" ? <WorkspacesView />
+          : route === "logs"       ? <LogsView />
+          : route === "config"     ? <ConfigView />
+          : null}
+      </div>
+
+      <StatusBar hints={currentHint} daemon={DAEMON} />
+
+      {palette && <CommandPalette onClose={() => setPalette(false)} />}
+
+      {!onboarding && (
+        <button
+          onClick={() => setOnboarding(true)}
+          title="replay first-run setup"
+          style={{
+            position: "absolute", bottom: 38, right: 10,
+            background: "transparent", border: "1px solid var(--border)",
+            color: "var(--text-faint)", fontFamily: "var(--mono)", fontSize: 10,
+            padding: "2px 8px", cursor: "pointer", borderRadius: 2,
+          }}>
+          replay onboarding
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Top bar — daemon health, server, env quick-glance
+ * ─────────────────────────────────────────────────────────────────────────── */
+function TopBar({ daemon, attachId }) {
+  const now = useClock();
+  const ts = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const needsInput = SESSIONS.filter(s => s.state === "needs_input").length;
+  const working    = SESSIONS.filter(s => s.state === "working" || s.state === "running").length;
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 14,
+      padding: "8px 14px",
+      background: "var(--bg)",
+      borderBottom: "1px solid var(--border)",
+      fontSize: 12,
+      flexShrink: 0,
+    }}>
+      <BrandMark />
+      <span style={{ color: "var(--text-mute)" }}>│</span>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+        <Dot color="var(--ok)" />
+        <span style={{ color: "var(--ok)", fontWeight: 600 }}>daemon up</span>
+        <span style={{ color: "var(--text-faint)" }} className="tui-num">{daemon.uptime}</span>
+      </span>
+      <span style={{ color: "var(--text-mute)" }}>│</span>
+      <span style={{ color: "var(--text-faint)" }}>profile</span>
+      <span style={{ color: "var(--accent)" }}>{daemon.profile}</span>
+      <span style={{ color: "var(--text-faint)" }}>· srv</span>
+      <span style={{ color: "var(--text-dim)" }}>app.multica.ai</span>
+      <span style={{ color: "var(--ok)" }} className="tui-num">↑ 38ms</span>
+
+      <div style={{ flex: 1 }} />
+
+      {needsInput > 0 && (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--warn)" }}>
+          <span style={{ color: "var(--warn)", width: 14, textAlign: "center", display: "inline-block" }}>◆</span>
+          <span style={{ fontWeight: 600 }} className="tui-num">{needsInput}</span>
+          <span>need you</span>
+        </span>
+      )}
+      <span style={{ color: "var(--text-faint)" }}>· <span className="tui-num" style={{ color: "var(--info)" }}>{working}</span> working</span>
+      <span style={{ color: "var(--text-mute)" }}>│</span>
+      <span style={{ color: "var(--text-dim)" }} className="tui-num">cpu 18% · mem 41%</span>
+      <span style={{ color: "var(--text-mute)" }}>│</span>
+      <span style={{ color: "var(--text)" }} className="tui-num">{ts}</span>
+    </div>
+  );
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Tab bar
+ * ─────────────────────────────────────────────────────────────────────────── */
+function TabBar({ route, setRoute, attachId, setAttachId, setHelp, help }) {
+  return (
+    <div style={{
+      display: "flex", gap: 2, alignItems: "center",
+      padding: "0 8px",
+      background: "var(--bg-2)",
+      borderBottom: "1px solid var(--border)",
+      flexShrink: 0,
+    }}>
+      {ROUTES.map(r => {
+        const active = !help && !attachId && r.id === route;
+        return (
+          <button key={r.id} className={`tui-tab ${active ? "active" : ""}`}
+            onClick={() => { setRoute(r.id); setHelp(false); }}
+            style={{
+              position: "relative",
+              background: "transparent", border: 0,
+              padding: "9px 12px",
+              fontFamily: "var(--mono)", fontSize: 12.5,
+              color: active ? "var(--accent)" : "var(--text-faint)",
+              cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}>
+            <span style={{
+              fontSize: 10, padding: "0 5px",
+              border: `1px solid ${active ? "var(--accent-dim)" : "var(--border)"}`,
+              color: active ? "var(--accent)" : "var(--text-mute)",
+              borderRadius: 2, lineHeight: "15px",
+            }}>{r.key}</span>
+            <span>{r.label}</span>
+            {r.id === "sessions" && (() => {
+              const n = SESSIONS.filter(s => s.state === "needs_input").length;
+              return n > 0 ? <span style={{ color: "var(--warn)", fontSize: 10 }}>◆{n}</span> : null;
+            })()}
+          </button>
+        );
+      })}
+      <div style={{ flex: 1 }} />
+      {attachId && (
+        <button onClick={() => setAttachId(null)} className="tui-tab active"
+          style={{
+            position: "relative", background: "transparent", border: 0,
+            padding: "9px 12px", fontFamily: "var(--mono)", fontSize: 12.5,
+            color: "var(--accent)", cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 6,
+          }}>
+          <span style={{ color: "var(--accent)" }}>● attached · {attachId}</span>
+          <span style={{ color: "var(--text-faint)", fontSize: 10 }}>(← detach)</span>
+        </button>
+      )}
+      <button onClick={() => setHelp(h => !h)} className={`tui-tab ${help ? "active" : ""}`}
+        style={{
+          position: "relative", background: "transparent", border: 0,
+          padding: "9px 12px", fontFamily: "var(--mono)", fontSize: 12.5,
+          color: help ? "var(--accent)" : "var(--text-faint)", cursor: "pointer",
+          display: "inline-flex", alignItems: "center", gap: 6,
+        }}>
+        <span style={{
+          fontSize: 10, padding: "0 5px",
+          border: `1px solid ${help ? "var(--accent-dim)" : "var(--border)"}`,
+          color: help ? "var(--accent)" : "var(--text-mute)",
+          borderRadius: 2, lineHeight: "15px",
+        }}>?</span>
+        <span>Help</span>
+      </button>
+    </div>
+  );
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Status bar — contextual key hints + meta
+ * ─────────────────────────────────────────────────────────────────────────── */
+function StatusBar({ hints, daemon }) {
+  const seen = new Set();
+  const safe = hints.filter(([k]) => {
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 12,
+      padding: "6px 14px",
+      background: "var(--bg-2)",
+      borderTop: "1px solid var(--border)",
+      fontSize: 11.5, flexShrink: 0,
+    }}>
+      {safe.map(([k, l], i) => (
+        <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span style={{
+            padding: "0 5px",
+            background: "var(--surface-2)",
+            border: "1px solid var(--border)",
+            color: "var(--text)",
+            fontWeight: 600,
+            borderRadius: 2,
+            fontSize: 10.5, lineHeight: "15px",
+          }}>{k}</span>
+          <span style={{ color: "var(--text-faint)" }}>{l}</span>
+        </span>
+      ))}
+      <div style={{ flex: 1 }} />
+      <span style={{ color: "var(--text-mute)" }}>multica-tui v{daemon.version}</span>
+      <span style={{ color: "var(--text-mute)" }}>·</span>
+      <span style={{ color: "var(--text-mute)" }} className="tui-num">pid {daemon.pid}</span>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
