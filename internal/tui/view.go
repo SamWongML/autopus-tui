@@ -19,6 +19,10 @@ func (m Model) View() string {
 		return ""
 	}
 
+	if m.W < 60 || m.H < 18 {
+		return tooSmallFrame(m.W, m.H)
+	}
+
 	top := chrome.TopBar(m.W, m.Now)
 	tab := chrome.TabBar(m.W, m.Route, m.Attach, m.Overlay == "help")
 	stat := chrome.StatusBar(m.W, m.activeKeyHints())
@@ -81,6 +85,23 @@ func (m Model) routeView(bodyH int) string {
 		return m.Config.View(c, m.W, bodyH)
 	}
 	return ""
+}
+
+// tooSmallFrame renders a centered "terminal too small" message on canvas bg,
+// skipping all chrome. Triggered when width < 60 or height < 18.
+func tooSmallFrame(w, h int) string {
+	msg := theme.FgOn(theme.TextDim, theme.Bg).Render("terminal too small — resize ≥ 60×18")
+	msgW := lipgloss.Width(msg)
+	row := h / 2
+	col := (w - msgW) / 2
+	if col < 0 {
+		col = 0
+	}
+	lines := make([]string, h)
+	if row >= 0 && row < h {
+		lines[row] = ui.Blank(col) + msg
+	}
+	return paintFrame(strings.Join(lines, "\n"), w, h)
 }
 
 // paintFrame splits full into lines and pads each to exactly w columns. Chrome

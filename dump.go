@@ -27,6 +27,7 @@ import (
 	"autopus-tui/internal/app"
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/tui"
+	"autopus-tui/internal/ui"
 )
 
 type dumpFrame struct {
@@ -79,6 +80,7 @@ func runDump(out io.Writer) {
 func dumpFrameOne(out io.Writer, f dumpFrame, w, h int) {
 	m := tui.New()
 	m.W, m.H = w, h
+	m.Bp = ui.For(w)
 	f.mut(&m)
 
 	fmt.Fprintln(out, strings.Repeat("=", w))

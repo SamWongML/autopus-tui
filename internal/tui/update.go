@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"autopus-tui/internal/app"
+	"autopus-tui/internal/ui"
 )
 
 // Init kicks off the wall-clock and spinner tickers.
@@ -19,6 +20,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.W, m.H = msg.Width, msg.Height
+		m.Bp = ui.For(m.W)
 		return m, nil
 	case app.ClockMsg:
 		m.Now = time.Time(msg)

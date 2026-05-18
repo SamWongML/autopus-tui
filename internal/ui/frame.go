@@ -4,9 +4,28 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"autopus-tui/internal/theme"
 )
+
+// ClipANSI hard-clips s to at most n cells, preserving SGR sequences. Unlike
+// lipgloss.MaxWidth (which silently wraps to a new line when content
+// overflows), this returns a single line of exactly min(width(s), n) cells.
+// Appends "…" as an overflow marker when n >= 2 and clipping happens.
+func ClipANSI(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	tail := "…"
+	if n < 2 {
+		tail = ""
+	}
+	return ansi.Truncate(s, n, tail)
+}
 
 // PaintLine pads s to width w with a styled background fill so an empty cell
 // shows the supplied bg color instead of the terminal default.
@@ -34,8 +53,13 @@ func VGap(w, h int) string {
 
 // PadOrClipANSI pads or clips a (possibly ANSI-colored) string to exactly
 // width n. Padding spaces are styled with the canvas bg so the terminal
-// default color doesn't show through.
+// default color doesn't show through. Clipping is hard (never wraps to a new
+// line) — the prior lipgloss.MaxWidth path silently wrapped overflow and
+// broke card borders by one cell.
 func PadOrClipANSI(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	w := lipgloss.Width(s)
 	if w == n {
 		return s
@@ -43,7 +67,7 @@ func PadOrClipANSI(s string, n int) string {
 	if w < n {
 		return s + theme.BG(theme.Bg).Render(strings.Repeat(" ", n-w))
 	}
-	return lipgloss.NewStyle().Width(n).MaxWidth(n).Background(lipgloss.Color(theme.Bg)).Render(s)
+	return ClipANSI(s, n)
 }
 
 // JoinVertical joins parts with newlines (lipgloss-free for performance).

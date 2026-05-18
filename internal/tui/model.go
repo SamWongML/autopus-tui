@@ -15,6 +15,7 @@ import (
 	"autopus-tui/internal/app"
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
+	"autopus-tui/internal/ui"
 	"autopus-tui/internal/views/attach"
 	"autopus-tui/internal/views/config"
 	"autopus-tui/internal/views/ctx"
@@ -34,6 +35,7 @@ import (
 // "onboarding". When Attach is non-empty it overrides the active route.
 type Model struct {
 	W, H int
+	Bp   ui.BP
 	Now  time.Time
 	Spin int
 
