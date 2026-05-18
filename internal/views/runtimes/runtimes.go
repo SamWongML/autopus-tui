@@ -52,9 +52,25 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the runtimes view: table on left, detail on right.
+// View renders the runtimes view. At BPxs/BPsm the detail stacks under the
+// table; at BPmd+ it sits on the right.
 func (m Model) View(_ ctx.Ctx, w, h int) string {
 	gap := 1
+	stacked := ui.For(w) <= ui.BPsm
+
+	if stacked {
+		detailH := ui.Max(10, h/3)
+		topH := h - detailH
+		if topH < 8 {
+			topH = 8
+			detailH = ui.Max(4, h-topH)
+		}
+		leftPanel := ui.Panel("agent runtimes", "auto-detected on $PATH",
+			renderTable(m, w-4, topH-4), w, topH, false, false)
+		rightPanel := renderDetail(m, w, detailH)
+		return lipgloss.JoinVertical(lipgloss.Left, leftPanel, rightPanel)
+	}
+
 	leftW := (w - gap) * 64 / 100
 	rightW := w - gap - leftW
 

@@ -8,28 +8,33 @@ import (
 	"autopus-tui/internal/ui"
 )
 
+// colSpecs is the responsive column layout for the workspaces table.
+//
+// "marker" and "watch" dots are pinned (Priority 0). Drop order at narrow
+// widths: ROLE → MEMBERS.
+var colSpecs = []ui.Col{
+	{ID: "marker", MinW: 1, Priority: 0},
+	{ID: "watch", MinW: 2, Priority: 0},
+	{ID: "name", Header: "NAME", MinW: 12, Weight: 5, Priority: 1},
+	{ID: "members", Header: "MEMBERS", MinW: 7, Priority: 4, AlignR: true},
+	{ID: "issues", Header: "ISSUES", MinW: 6, Priority: 3, AlignR: true},
+	{ID: "sessions", Header: "SESSIONS", MinW: 8, Priority: 2, AlignR: true},
+	{ID: "role", Header: "ROLE", MinW: 10, Priority: 5},
+}
+
 func renderTable(m Model, w, h int) string {
-	const (
-		cDot  = 2
-		cMem  = 8
-		cIss  = 7
-		cSess = 9
-		cRole = 12
-	)
-	gaps := 5
-	cName := w - cDot - cMem - cIss - cSess - cRole - gaps
-	if cName < 12 {
-		cName = 12
+	widths, visible := ui.LayoutCols(colSpecs, w)
+
+	header := make(map[string]string, len(visible))
+	for _, col := range visible {
+		header[col.ID] = theme.SFaint.Render(col.Header)
 	}
-	header := []string{
-		theme.SFaint.Render(ui.PadRight("", cDot)),
-		theme.SFaint.Render(ui.PadRight("NAME", cName)),
-		theme.SFaint.Render(ui.PadLeft("MEMBERS", cMem)),
-		theme.SFaint.Render(ui.PadLeft("ISSUES", cIss)),
-		theme.SFaint.Render(ui.PadLeft("SESSIONS", cSess)),
-		theme.SFaint.Render(ui.PadRight("ROLE", cRole)),
+	headerRow := ui.RowFromCols(visible, widths, header, 1)
+
+	out := []string{
+		headerRow,
+		theme.SBorder.Render(strings.Repeat("─", w)),
 	}
-	out := []string{strings.Join(header, " "), theme.SBorder.Render(strings.Repeat("─", w))}
 
 	for i, x := range data.Workspaces {
 		selected := i == m.Sel
@@ -51,17 +56,20 @@ func renderTable(m Model, w, h int) string {
 		if x.Sessions > 0 {
 			sessCol = theme.OK
 		}
-		line := marker + " " +
-			theme.Fg(watchCol).Render(watchGlyph) + " " +
-			theme.Fg(nameCol).Render(ui.PadRight(x.Name, cName)) + " " +
-			theme.SDim.Render(ui.PadLeft(ui.Itoa(x.Members), cMem)) + " " +
-			theme.SDim.Render(ui.PadLeft(ui.Itoa(x.Issues), cIss)) + " " +
-			theme.Fg(sessCol).Render(ui.PadLeft(ui.Itoa(x.Sessions), cSess)) + " " +
-			theme.SFaint.Render(ui.PadRight(x.Role, cRole))
-		if selected {
-			line = theme.WithBg(line, theme.AccentFaint)
+		text := map[string]string{
+			"marker":   marker,
+			"watch":    theme.Fg(watchCol).Render(watchGlyph),
+			"name":     theme.Fg(nameCol).Render(x.Name),
+			"members":  theme.SDim.Render(ui.Itoa(x.Members)),
+			"issues":   theme.SDim.Render(ui.Itoa(x.Issues)),
+			"sessions": theme.Fg(sessCol).Render(ui.Itoa(x.Sessions)),
+			"role":     theme.SFaint.Render(x.Role),
 		}
-		out = append(out, line)
+		row := ui.RowFromCols(visible, widths, text, 1)
+		if selected {
+			row = theme.WithBg(row, theme.AccentFaint)
+		}
+		out = append(out, row)
 	}
 	_ = h
 	return strings.Join(out, "\n")

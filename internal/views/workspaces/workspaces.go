@@ -41,9 +41,25 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the workspaces view as left table + right detail.
+// View renders the workspaces view. At BPxs/BPsm the detail stacks under the
+// table; at BPmd+ it sits on the right.
 func (m Model) View(c ctx.Ctx, w, h int) string {
 	gap := 1
+	stacked := ui.For(w) <= ui.BPsm
+
+	if stacked {
+		detailH := ui.Max(10, h/3)
+		topH := h - detailH
+		if topH < 8 {
+			topH = 8
+			detailH = ui.Max(4, h-topH)
+		}
+		topPanel := ui.Panel("workspaces", "w · watch toggle",
+			renderTable(m, w-4, topH-4), w, topH, false, false)
+		bottomPanel := renderDetail(m, c, w, detailH)
+		return lipgloss.JoinVertical(lipgloss.Left, topPanel, bottomPanel)
+	}
+
 	leftW := (w - gap) * 62 / 100
 	rightW := w - gap - leftW
 
