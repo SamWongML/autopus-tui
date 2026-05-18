@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"autopus-tui/internal/app"
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
 	"autopus-tui/internal/ui"
@@ -31,7 +32,7 @@ func renderDetail(m Model, c ctx.Ctx, w, h int) string {
 		sessCol = theme.OK
 	}
 	b.WriteString(ui.KVRow("sessions", ui.Itoa(x.Sessions), sessCol, w-4) + "\n")
-	b.WriteString(ui.KVRow("root", "~/autopus_workspaces/"+x.Name, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRow("root", app.WorkspacesRoot+"/"+x.Name, theme.Text, w-4) + "\n")
 	b.WriteString(ui.KVRow("disk", "2.4G / 3.0G (78%)", theme.Warn, w-4) + "\n")
 	b.WriteString("\n" + theme.SFaint.Render("ACTIVE SESSIONS") + "\n")
 	count := 0

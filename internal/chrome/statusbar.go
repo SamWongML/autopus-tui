@@ -34,7 +34,6 @@ func StatusBar(w int, hints [][2]string) string {
 	if gap < 1 {
 		gap = 1
 	}
-	top := theme.FgOn(theme.Border, theme.Bg2).Render(strings.Repeat("─", w))
 	line := theme.BG(theme.Bg2).Render(" ") + left + theme.BG(theme.Bg2).Render(strings.Repeat(" ", gap)) + right + theme.BG(theme.Bg2).Render(" ")
-	return ui.PaintLine(top, w, theme.Bg2) + "\n" + ui.PaintLine(line, w, theme.Bg2)
+	return ui.PaintLine(line, w, theme.Bg2)
 }

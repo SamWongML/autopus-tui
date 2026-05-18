@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"autopus-tui/internal/app"
 	"autopus-tui/internal/theme"
 	"autopus-tui/internal/ui"
 )
@@ -15,8 +16,8 @@ func renderServerCard(w, h int) string {
 	pad := ui.Max(1, w-lipgloss.Width("● REACHABLE")-lipgloss.Width("last hb 4s ago")-1)
 	header := headLeft + strings.Repeat(" ", pad) + headRight
 	rows := [][3]string{
-		{"app url", "app.autopus.ai", theme.Text},
-		{"ws url", "api.autopus.ai/ws", theme.Text},
+		{"app url", app.AppHost, theme.Text},
+		{"ws url", app.WSHost, theme.Text},
 		{"region", "us-west · iad1", theme.Text},
 		{"latency p50", "38ms", theme.OK},
 		{"latency p99", "92ms", theme.Text},

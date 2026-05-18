@@ -10,8 +10,8 @@ import (
 	"autopus-tui/internal/ui"
 )
 
-// View renders the full terminal frame: 2-line top bar, 2-line tab bar, body,
-// 2-line status bar. Each chrome strip already paints its own bg; the body
+// View renders the full terminal frame: 1-row top bar, 1-row tab bar, body,
+// 1-row status bar. Each chrome strip already paints its own bg; the body
 // uses canvas bg. paintFrame pads every line to width with the right bg
 // color so the terminal default never bleeds through.
 func (m Model) View() string {
@@ -23,8 +23,8 @@ func (m Model) View() string {
 	tab := chrome.TabBar(m.W, m.Route, m.Attach, m.Overlay == "help")
 	stat := chrome.StatusBar(m.W, m.activeKeyHints())
 
-	// Chrome occupies 6 visual rows total (each region is content + border).
-	bodyH := m.H - 6
+	// Chrome occupies 3 visual rows total (top + tabs + status, no borders).
+	bodyH := m.H - 3
 	if bodyH < 4 {
 		bodyH = 4
 	}

@@ -30,7 +30,13 @@ func TabBar(w int, activeRoute, attachID string, helpOpen bool) string {
 		cap := theme.FgOn(keyBorder, theme.Bg2).Render("[") +
 			theme.FgOn(keyCol, theme.Bg2).Render(r.Key) +
 			theme.FgOn(keyBorder, theme.Bg2).Render("]")
-		lbl := theme.FgOn(lblCol, theme.Bg2).Render(r.Label)
+		lblStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(lblCol)).
+			Background(lipgloss.Color(theme.Bg2))
+		if active {
+			lblStyle = lblStyle.Underline(true)
+		}
+		lbl := lblStyle.Render(r.Label)
 		s := cap + " " + lbl
 		if r.ID == "sessions" {
 			n := 0
@@ -42,11 +48,6 @@ func TabBar(w int, activeRoute, attachID string, helpOpen bool) string {
 			if n > 0 {
 				s += " " + theme.FgOn(theme.Warn, theme.Bg2).Render(fmt.Sprintf("◆%d", n))
 			}
-		}
-		if active {
-			s = theme.FgOn(theme.Accent, theme.Bg2).Render("▸ ") + s
-		} else {
-			s = theme.BG(theme.Bg2).Render("  ") + s
 		}
 		parts = append(parts, s)
 	}
@@ -63,16 +64,21 @@ func TabBar(w int, activeRoute, attachID string, helpOpen bool) string {
 	if helpOpen {
 		keyCol, lblCol, keyBorder = theme.Accent, theme.Accent, theme.AccentDim
 	}
+	helpLblStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(lblCol)).
+		Background(lipgloss.Color(theme.Bg2))
+	if helpOpen {
+		helpLblStyle = helpLblStyle.Underline(true)
+	}
 	right += theme.FgOn(keyBorder, theme.Bg2).Render("[") +
 		theme.FgOn(keyCol, theme.Bg2).Render("?") +
 		theme.FgOn(keyBorder, theme.Bg2).Render("]") + " " +
-		theme.FgOn(lblCol, theme.Bg2).Render("Help")
+		helpLblStyle.Render("Help")
 
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
 	line := theme.BG(theme.Bg2).Render(" ") + left + theme.BG(theme.Bg2).Render(strings.Repeat(" ", gap)) + right + theme.BG(theme.Bg2).Render(" ")
-	border := theme.FgOn(theme.Border, theme.Bg2).Render(strings.Repeat("─", w))
-	return ui.PaintLine(line, w, theme.Bg2) + "\n" + ui.PaintLine(border, w, theme.Bg2)
+	return ui.PaintLine(line, w, theme.Bg2)
 }
