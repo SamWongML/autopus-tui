@@ -1,0 +1,15 @@
+# Compiled binaries
+mtop
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Coverage
+*.out
+
+# Local Claude Code settings
+.claude/settings.local.json
