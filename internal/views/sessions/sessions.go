@@ -146,9 +146,32 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the sessions view.
+// View renders the sessions view. At BPxs/BPsm the peek stacks under the
+// table; at BPmd+ it sits to the right.
 func (m Model) View(c ctx.Ctx, w, h int) string {
 	gap := 1
+	rows := m.Filtered()
+	stacked := ui.For(w) <= ui.BPsm
+
+	if stacked {
+		peekH := ui.Max(8, h/3)
+		topH := h - peekH
+		if topH < 8 {
+			topH = 8
+			peekH = ui.Max(4, h-topH)
+		}
+		filterLine := renderFilterStrip(m, w)
+		tableH := topH - 2
+		if tableH < 6 {
+			tableH = 6
+		}
+		tablePanel := ui.Panel(fmt.Sprintf("sessions · %d", len(rows)), "sort · needs-you first",
+			renderTable(m, c, rows, w-4, tableH-4), w, tableH, false, false)
+		topCol := filterLine + "\n" + tablePanel
+		peek := renderPeek(m, c, rows, w, peekH)
+		return lipgloss.JoinVertical(lipgloss.Left, topCol, peek)
+	}
+
 	usable := w - gap
 	leftW := usable * 62 / 100
 	rightW := usable - leftW
@@ -158,7 +181,6 @@ func (m Model) View(c ctx.Ctx, w, h int) string {
 	if tableH < 6 {
 		tableH = 6
 	}
-	rows := m.Filtered()
 	tablePanel := ui.Panel(fmt.Sprintf("sessions · %d", len(rows)), "sort · needs-you first",
 		renderTable(m, c, rows, leftW-4, tableH-4), leftW, tableH, false, false)
 	leftCol := filterLine + "\n" + tablePanel

@@ -86,14 +86,36 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the issues view: filter strip + table on left, detail on right.
+// View renders the issues view. At BPxs/BPsm the detail stacks under the
+// table; at BPmd+ it sits on the right.
 func (m Model) View(c ctx.Ctx, w, h int) string {
 	gap := 1
+	rows := m.Filtered()
+	stacked := ui.For(w) <= ui.BPsm
+
+	if stacked {
+		detailH := ui.Max(8, h/3)
+		topH := h - detailH
+		if topH < 8 {
+			topH = 8
+			detailH = ui.Max(4, h-topH)
+		}
+		filter := renderFilterStrip(m, w)
+		tableH := topH - 2
+		if tableH < 6 {
+			tableH = 6
+		}
+		tablePanel := ui.Panel(fmt.Sprintf("issues · %d", len(rows)), "",
+			renderTable(m, rows, w-4, tableH-4), w, tableH, false, false)
+		topCol := filter + "\n" + tablePanel
+		detail := renderDetail(m, rows, c, w, detailH)
+		return lipgloss.JoinVertical(lipgloss.Left, topCol, detail)
+	}
+
 	leftW := (w - gap) * 64 / 100
 	rightW := w - gap - leftW
 
 	filter := renderFilterStrip(m, leftW)
-	rows := m.Filtered()
 	tableH := h - 2
 	if tableH < 6 {
 		tableH = 6
