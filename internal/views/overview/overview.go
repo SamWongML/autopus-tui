@@ -67,9 +67,23 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the overview grid.
+// View renders the overview grid. Layout adapts to c.Bp:
+//   - BPxs:  1 column stack — daemon, server, sessions, env, activity.
+//   - BPsm:  2 columns — left stacks daemon/env/sessions; right stacks server/activity.
+//   - BPmd+: 3 columns — colA/colB at 35% each, activity gets the rest.
 func (m Model) View(c ctx.Ctx, w, h int) string {
 	gap := 1
+	switch c.Bp {
+	case ui.BPxs:
+		return m.viewSingleCol(c, w, h)
+	case ui.BPsm:
+		return m.viewTwoCol(c, w, h, gap)
+	default:
+		return m.viewThreeCol(c, w, h, gap)
+	}
+}
+
+func (m Model) viewThreeCol(c ctx.Ctx, w, h, gap int) string {
 	usable := w - 2*gap
 	if usable < 30 {
 		usable = 30
@@ -98,6 +112,66 @@ func (m Model) View(c ctx.Ctx, w, h int) string {
 
 	gapCol := ui.VGap(gap, h)
 	return ui.JoinHorizontal(colALines, gapCol, colBLines, gapCol, pActivity)
+}
+
+func (m Model) viewTwoCol(c ctx.Ctx, w, h, gap int) string {
+	usable := w - gap
+	colA := usable / 2
+	colB := usable - colA
+
+	// Left column: daemon / env / sessions stacked.
+	leftThirds := splitH(h, 3)
+	pDaemon := overviewPanel(m, c, "daemon", colA, leftThirds[0])
+	pEnv := overviewPanel(m, c, "env", colA, leftThirds[1])
+	pSessions := overviewPanel(m, c, "sessions", colA, leftThirds[2])
+	colALines := ui.JoinVertical(pDaemon, pEnv, pSessions)
+
+	// Right column: server / activity.
+	rightServerH := ui.Min(h/2, 14)
+	if rightServerH < 8 {
+		rightServerH = 8
+	}
+	rightActivityH := h - rightServerH
+	if rightActivityH < 6 {
+		rightActivityH = 6
+	}
+	pServer := overviewPanel(m, c, "server", colB, rightServerH)
+	pActivity := overviewPanel(m, c, "activity", colB, rightActivityH)
+	colBLines := ui.JoinVertical(pServer, pActivity)
+
+	gapCol := ui.VGap(gap, h)
+	return ui.JoinHorizontal(colALines, gapCol, colBLines)
+}
+
+func (m Model) viewSingleCol(c ctx.Ctx, w, h int) string {
+	order := []string{"daemon", "server", "sessions", "env", "activity"}
+	base := h / len(order)
+	if base < 6 {
+		base = 6
+	}
+	leftover := h - base*(len(order)-1)
+	if leftover < base {
+		leftover = base
+	}
+	parts := make([]string, 0, len(order))
+	for i, id := range order {
+		ph := base
+		if i == len(order)-1 {
+			ph = leftover
+		}
+		parts = append(parts, overviewPanel(m, c, id, w, ph))
+	}
+	return ui.JoinVertical(parts...)
+}
+
+func splitH(h, n int) []int {
+	out := make([]int, n)
+	base := h / n
+	for i := 0; i < n; i++ {
+		out[i] = base
+	}
+	out[n-1] += h - base*n
+	return out
 }
 
 // KeyHints returns the status-bar key hint slice for this view.

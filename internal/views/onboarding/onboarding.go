@@ -52,7 +52,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the wizard as left rail + right body.
+// View renders the wizard. At normal widths the rail sits on the left at 28
+// cells. When that would leave the body too narrow (< 40 cells) the rail
+// collapses to a 1-row progress strip at the top and the body takes the rest
+// of the height.
 func (m Model) View(_ ctx.Ctx, w, h int) string {
 	gap := 1
 	railW := 28
@@ -60,6 +63,11 @@ func (m Model) View(_ ctx.Ctx, w, h int) string {
 		railW = w / 3
 	}
 	bodyW := w - railW - gap
+	if bodyW < 40 {
+		strip := renderRailTop(m, w)
+		body := renderStep(m, w, h-1)
+		return ui.JoinVertical(strip, body)
+	}
 
 	rail := renderRail(m, railW, h)
 	body := renderStep(m, bodyW, h)

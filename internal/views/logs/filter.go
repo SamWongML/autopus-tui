@@ -7,9 +7,28 @@ import (
 
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
+	"autopus-tui/internal/ui"
 )
 
-func renderFilterStrip(m Model, w int) string {
+// filterHitBoxes returns the click hit-boxes for the level chips and the
+// follow toggle, mirroring renderFilterStrip. Each chip is padded(0,1) with a
+// 1-cell border (= label + 4 cells). Chips are JoinHorizontal'd starting at
+// x=0 with no separator. The follow toggle ID is "__follow".
+func filterHitBoxes() []ui.HitBox {
+	hits := make([]ui.HitBox, 0, len(data.LogLevelFilters)+1)
+	x := 0
+	for _, l := range data.LogLevelFilters {
+		chipW := lipgloss.Width(l) + 4
+		hits = append(hits, ui.HitBox{X1: x, X2: x + chipW - 1, ID: l})
+		x += chipW
+	}
+	follow := "● following"
+	chipW := lipgloss.Width(follow) + 4
+	hits = append(hits, ui.HitBox{X1: x, X2: x + chipW - 1, ID: "__follow"})
+	return hits
+}
+
+func renderFilterStrip(m Model, spin, w int) string {
 	_ = w
 	var parts []string
 	for _, l := range data.LogLevelFilters {
@@ -33,7 +52,11 @@ func renderFilterStrip(m Model, w int) string {
 	followText := "○ paused"
 	if m.Follow {
 		followCol, followBorder = theme.Accent, theme.AccentDim
-		followText = "● following"
+		dot := "●"
+		if !ui.BlinkOn(spin) {
+			dot = "○"
+		}
+		followText = dot + " following"
 	}
 	follow := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(followCol)).

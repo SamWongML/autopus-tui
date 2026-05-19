@@ -14,20 +14,29 @@ import (
 func renderSessionsSummary(w, h int) string {
 	order := []string{"needs_input", "working", "running", "paused", "idle", "completed", "failed"}
 	counts := data.CountSessionStates()
-	cellW := (w - 1) / 2
+	cols := ui.Max(1, w/22)
+	if cols > len(order) {
+		cols = len(order)
+	}
+	cellW := (w - (cols - 1)) / cols
 	if cellW < 18 {
 		cellW = 18
+		cols = ui.Max(1, (w+1)/(cellW+1))
 	}
 	var b strings.Builder
-	for i := 0; i < len(order); i += 2 {
-		left := summaryChip(order[i], counts[order[i]], cellW)
-		var right string
-		if i+1 < len(order) {
-			right = summaryChip(order[i+1], counts[order[i+1]], cellW)
-		} else {
-			right = strings.Repeat(" ", cellW)
+	for i := 0; i < len(order); i += cols {
+		row := make([]string, 0, 2*cols-1)
+		for j := 0; j < cols; j++ {
+			if j > 0 {
+				row = append(row, " ")
+			}
+			if i+j < len(order) {
+				row = append(row, summaryChip(order[i+j], counts[order[i+j]], cellW))
+			} else {
+				row = append(row, strings.Repeat(" ", cellW))
+			}
 		}
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right) + "\n")
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, row...) + "\n")
 	}
 	b.WriteString(ui.Dashed(w) + "\n")
 	b.WriteString(theme.SWarn.Render("2 sessions need you") + " " + theme.SFaint.Render("· oldest waiting ") + theme.SText.Render("02:11"))

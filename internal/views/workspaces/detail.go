@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"autopus-tui/internal/app"
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
 	"autopus-tui/internal/ui"
@@ -22,17 +23,17 @@ func renderDetail(m Model, c ctx.Ctx, w, h int) string {
 	b.WriteString(theme.Fg(watchCol).Render(watchLabel) +
 		strings.Repeat(" ", headPad) +
 		theme.SFaint.Render(x.ID) + "\n\n")
-	b.WriteString(ui.KVRow("name", x.Name, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("role", x.Role, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("members", ui.Itoa(x.Members), theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("issues", ui.Itoa(x.Issues), theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("name", x.Name, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("role", x.Role, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("members", ui.Itoa(x.Members), theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("issues", ui.Itoa(x.Issues), theme.Text, w-4) + "\n")
 	sessCol := theme.TextDim
 	if x.Sessions > 0 {
 		sessCol = theme.OK
 	}
-	b.WriteString(ui.KVRow("sessions", ui.Itoa(x.Sessions), sessCol, w-4) + "\n")
-	b.WriteString(ui.KVRow("root", "~/autopus_workspaces/"+x.Name, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("disk", "2.4G / 3.0G (78%)", theme.Warn, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("sessions", ui.Itoa(x.Sessions), sessCol, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("root", app.WorkspacesRoot+"/"+x.Name, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("disk", "2.4G / 3.0G (78%)", theme.Warn, w-4) + "\n")
 	b.WriteString("\n" + theme.SFaint.Render("ACTIVE SESSIONS") + "\n")
 	count := 0
 	for _, s := range data.Sessions {

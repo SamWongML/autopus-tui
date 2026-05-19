@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"autopus-tui/internal/app"
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
 	"autopus-tui/internal/ui"
@@ -35,16 +36,19 @@ func TopBar(w int, now time.Time) string {
 	sep := theme.FgOn(theme.TextMute, theme.Bg).Render("│")
 	bullet := theme.FgOn(theme.TextFaint, theme.Bg).Render("·")
 
-	brand := theme.FgOn(theme.Accent, theme.Bg).Render("◆") + " " +
-		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.Text)).Background(lipgloss.Color(theme.Bg)).Render("autopus") +
-		" " + theme.FgOn(theme.TextFaint, theme.Bg).Render("· agent daemon")
+	mark := theme.FgOn(theme.BorderHi, theme.Bg).Render("[") +
+		theme.FgOn(theme.Accent, theme.Bg).Render("◆") +
+		theme.FgOn(theme.BorderHi, theme.Bg).Render("]")
+	brand := mark + " " +
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.Text)).Background(lipgloss.Color(theme.Bg)).Render(app.Name) +
+		" " + theme.FgOn(theme.TextFaint, theme.Bg).Render("· "+app.Tagline)
 
 	daemonStatus := theme.FgOn(theme.OK, theme.Bg).Render("●") + " " +
 		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.OK)).Background(lipgloss.Color(theme.Bg)).Render("daemon up") +
 		" " + theme.FgOn(theme.TextFaint, theme.Bg).Render(data.Daemon.Uptime)
 
 	srv := theme.FgOn(theme.TextFaint, theme.Bg).Render("profile") + " " + theme.FgOn(theme.Accent, theme.Bg).Render(data.Daemon.Profile) + " " + bullet + " " +
-		theme.FgOn(theme.TextFaint, theme.Bg).Render("srv") + " " + theme.FgOn(theme.TextDim, theme.Bg).Render("app.autopus.ai") + " " + theme.FgOn(theme.OK, theme.Bg).Render("↑ 38ms")
+		theme.FgOn(theme.TextFaint, theme.Bg).Render("srv") + " " + theme.FgOn(theme.TextDim, theme.Bg).Render(app.AppHost) + " " + theme.FgOn(theme.OK, theme.Bg).Render("↑ 38ms")
 
 	ts := now.Format("15:04:05")
 
@@ -71,6 +75,5 @@ func TopBar(w int, now time.Time) string {
 		gap = 1
 	}
 	line := theme.BG(theme.Bg).Render(" ") + left + theme.BG(theme.Bg).Render(strings.Repeat(" ", gap)) + right + theme.BG(theme.Bg).Render(" ")
-	border := theme.FgOn(theme.Border, theme.Bg).Render(strings.Repeat("─", w))
-	return ui.PaintLine(line, w, theme.Bg) + "\n" + ui.PaintLine(border, w, theme.Bg)
+	return ui.PaintLine(line, w, theme.Bg)
 }

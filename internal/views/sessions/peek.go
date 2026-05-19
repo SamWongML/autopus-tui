@@ -55,14 +55,7 @@ func renderPeek(m Model, c ctx.Ctx, rows []data.Session, w, h int) string {
 
 	if s.Question != "" {
 		b.WriteString("\n")
-		boxW := w - 6
-		header := theme.SAccent.Render("◆ WAITING ON YOU")
-		body := ui.Wrap(s.Question, boxW-2)
-		boxed := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(theme.AccentDim)).
-			Foreground(lipgloss.Color(theme.Text)).
-			Padding(0, 1).Width(boxW).Render(header + "\n" + body)
-		b.WriteString(boxed + "\n")
+		b.WriteString(ui.SubCard("◆ WAITING ON YOU", s.Question, w-4, theme.AccentDim) + "\n")
 	}
 
 	if len(s.Log) > 0 {

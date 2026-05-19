@@ -9,34 +9,42 @@ import (
 	"autopus-tui/internal/views/ctx"
 )
 
-func renderTable(m Model, c ctx.Ctx, rows []data.Session, w, h int) string {
-	if w < 50 {
-		w = 50
-	}
-	const (
-		cState = 2
-		cIssue = 8
-		cAgent = 14
-		cWS    = 12
-		cElap  = 9
-		cCost  = 7
-	)
-	gaps := 6
-	cTitle := w - cState - cIssue - cAgent - cWS - cElap - cCost - gaps
-	if cTitle < 12 {
-		cTitle = 12
-	}
+// colSpecs is the responsive column layout for the sessions table.
+//
+// MinW: minimum cell width before the column is dropped.
+// Weight: share of leftover space (0 = fixed at MinW).
+// Priority: higher value = dropped first when width is tight.
+//
+// The "marker" and "state" columns are pinned (Priority 0) so they're never
+// dropped — they carry the selection bar and state glyph.
+var colSpecs = []ui.Col{
+	{ID: "marker", MinW: 1, Priority: 0},
+	{ID: "state", MinW: 2, Priority: 0},
+	{ID: "issue", Header: "ISSUE", MinW: 8, Priority: 3},
+	{ID: "title", Header: "TITLE · ACTIVITY", MinW: 20, Weight: 5, Priority: 1},
+	{ID: "agent", Header: "AGENT", MinW: 10, Priority: 4},
+	{ID: "ws", Header: "WORKSPACE", MinW: 8, Priority: 5},
+	{ID: "elap", Header: "ELAPSED", MinW: 8, Priority: 6, AlignR: true},
+	{ID: "cost", Header: "COST", MinW: 6, Priority: 7, AlignR: true},
+}
 
-	header := []string{
-		theme.SFaint.Render(ui.PadRight("", cState)),
-		theme.SFaint.Render(ui.PadRight("ISSUE", cIssue)),
-		theme.SFaint.Render(ui.PadRight("TITLE · ACTIVITY", cTitle)),
-		theme.SFaint.Render(ui.PadRight("AGENT", cAgent)),
-		theme.SFaint.Render(ui.PadRight("WORKSPACE", cWS)),
-		theme.SFaint.Render(ui.PadLeft("ELAPSED", cElap)),
-		theme.SFaint.Render(ui.PadLeft("COST", cCost)),
+// renderTable renders the sessions table inside a content area of (w, h) cells.
+// Every emitted line is exactly w cells wide — built via ui.Row which clips
+// oversize cells rather than wrapping them onto a new line (which would break
+// the panel's right border).
+func renderTable(m Model, c ctx.Ctx, rows []data.Session, w, h int) string {
+	widths, visible := ui.LayoutCols(colSpecs, w)
+
+	header := make(map[string]string, len(visible))
+	for _, col := range visible {
+		header[col.ID] = theme.SFaint.Render(col.Header)
 	}
-	out := []string{strings.Join(header, " "), theme.SBorder.Render(strings.Repeat("─", w))}
+	headerRow := ui.RowFromCols(visible, widths, header, 1)
+
+	out := []string{
+		headerRow,
+		theme.SBorder.Render(strings.Repeat("─", w)),
+	}
 
 	visibleH := h - 2
 	if visibleH < 1 {
@@ -53,21 +61,22 @@ func renderTable(m Model, c ctx.Ctx, rows []data.Session, w, h int) string {
 
 	for i := start; i < end; i++ {
 		s := rows[i]
-		selected := i == m.Sel
 		marker := " "
-		if selected {
+		if i == m.Sel {
 			marker = theme.SAccent.Render("▎")
 		}
-		g := ui.Glyph(s.State, c.Spin)
-		issue := theme.SDim.Render(ui.PadRight(s.Issue, cIssue))
-		title := ui.PadRight(theme.SText.Render(s.Title)+"  "+activityHint(s), cTitle)
-		agent := theme.SDim.Render(ui.PadRight(s.Agent+" · "+s.Model, cAgent))
-		ws := theme.SFaint.Render(ui.PadRight(s.Workspace, cWS))
-		elap := theme.SDim.Render(ui.PadLeft(s.Elapsed, cElap))
-		cost := theme.SDim.Render(ui.PadLeft(s.Cost, cCost))
-
-		row := marker + " " + g + " " + issue + " " + title + " " + agent + " " + ws + " " + elap + " " + cost
-		if selected {
+		text := map[string]string{
+			"marker": marker,
+			"state":  ui.Glyph(s.State, c.Spin),
+			"issue":  theme.SDim.Render(s.Issue),
+			"title":  theme.SText.Render(s.Title) + "  " + activityHint(s),
+			"agent":  theme.SDim.Render(s.Agent + " · " + s.Model),
+			"ws":     theme.SFaint.Render(s.Workspace),
+			"elap":   theme.SDim.Render(s.Elapsed),
+			"cost":   theme.SDim.Render(s.Cost),
+		}
+		row := ui.RowFromCols(visible, widths, text, 1)
+		if i == m.Sel {
 			row = theme.WithBg(row, theme.AccentFaint)
 		}
 		out = append(out, row)

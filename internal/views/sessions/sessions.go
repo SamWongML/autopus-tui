@@ -24,6 +24,7 @@ type Model struct {
 	Query     string
 	Searching bool
 	PendingG  bool
+	LastW     int // last body width — used by mouse handler to derive layout
 }
 
 // New returns a fresh model with Filter="all".
@@ -51,6 +52,9 @@ func (m Model) Filtered() []data.Session {
 
 // Update handles search input, filter cycling, navigation, and ↵ (attach).
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return m.handleMouse(mouse)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -146,19 +150,41 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the sessions view.
+// View renders the sessions view. At BPxs/BPsm the peek stacks under the
+// table; at BPmd+ it sits to the right.
 func (m Model) View(c ctx.Ctx, w, h int) string {
 	gap := 1
+	rows := m.Filtered()
+	stacked := ui.For(w) <= ui.BPsm
+
+	if stacked {
+		peekH := ui.Max(8, h/3)
+		topH := h - peekH
+		if topH < 8 {
+			topH = 8
+			peekH = ui.Max(4, h-topH)
+		}
+		filterLine := renderFilterStrip(m, c.Spin, w)
+		tableH := topH - 2
+		if tableH < 6 {
+			tableH = 6
+		}
+		tablePanel := ui.Panel(fmt.Sprintf("sessions · %d", len(rows)), "sort · needs-you first",
+			renderTable(m, c, rows, w-4, tableH-4), w, tableH, false, false)
+		topCol := filterLine + "\n" + tablePanel
+		peek := renderPeek(m, c, rows, w, peekH)
+		return lipgloss.JoinVertical(lipgloss.Left, topCol, peek)
+	}
+
 	usable := w - gap
 	leftW := usable * 62 / 100
 	rightW := usable - leftW
 
-	filterLine := renderFilterStrip(m, leftW)
+	filterLine := renderFilterStrip(m, c.Spin, leftW)
 	tableH := h - 2
 	if tableH < 6 {
 		tableH = 6
 	}
-	rows := m.Filtered()
 	tablePanel := ui.Panel(fmt.Sprintf("sessions · %d", len(rows)), "sort · needs-you first",
 		renderTable(m, c, rows, leftW-4, tableH-4), leftW, tableH, false, false)
 	leftCol := filterLine + "\n" + tablePanel
@@ -173,6 +199,42 @@ func (m Model) KeyHints() [][2]string {
 	return [][2]string{
 		{"j k", "row"}, {"[ ]", "filter"}, {"*", "needs-input"}, {"↵", "attach"}, {"/", "search"}, {"?", "help"},
 	}
+}
+
+// handleMouse maps a body-relative click into a filter change, a row select +
+// attach, or a no-op. Row 0 = filter strip; rows 6+ in the left column = table
+// data rows (panel top + title + divider + table header + separator = 5 rows).
+func (m Model) handleMouse(mouse tea.MouseMsg) (Model, tea.Cmd) {
+	if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	w := m.LastW
+	if w <= 0 {
+		return m, nil
+	}
+	leftW := w
+	if ui.For(w) > ui.BPsm {
+		leftW = (w - 1) * 62 / 100
+	}
+	if mouse.X >= leftW {
+		return m, nil
+	}
+	if mouse.Y == 0 {
+		hits := filterHitBoxes()
+		if id := ui.Hits(hits, mouse.X); id != "" {
+			m.Filter = id
+			m.Sel = 0
+		}
+		return m, nil
+	}
+	rowIdx := mouse.Y - 6
+	rows := m.Filtered()
+	if rowIdx < 0 || rowIdx >= len(rows) {
+		return m, nil
+	}
+	m.Sel = rowIdx
+	id := rows[rowIdx].ID
+	return m, func() tea.Msg { return app.NavigateMsg{Attach: id} }
 }
 
 func indexOf(xs []string, v string) int {

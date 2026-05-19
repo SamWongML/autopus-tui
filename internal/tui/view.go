@@ -10,8 +10,8 @@ import (
 	"autopus-tui/internal/ui"
 )
 
-// View renders the full terminal frame: 2-line top bar, 2-line tab bar, body,
-// 2-line status bar. Each chrome strip already paints its own bg; the body
+// View renders the full terminal frame: 1-row top bar, 1-row tab bar, body,
+// 1-row status bar. Each chrome strip already paints its own bg; the body
 // uses canvas bg. paintFrame pads every line to width with the right bg
 // color so the terminal default never bleeds through.
 func (m Model) View() string {
@@ -19,12 +19,16 @@ func (m Model) View() string {
 		return ""
 	}
 
+	if m.W < 60 || m.H < 18 {
+		return tooSmallFrame(m.W, m.H)
+	}
+
 	top := chrome.TopBar(m.W, m.Now)
-	tab := chrome.TabBar(m.W, m.Route, m.Attach, m.Overlay == "help")
+	tab, _ := chrome.TabBar(m.W, m.Route, m.Attach, m.Overlay == "help")
 	stat := chrome.StatusBar(m.W, m.activeKeyHints())
 
-	// Chrome occupies 6 visual rows total (each region is content + border).
-	bodyH := m.H - 6
+	// Chrome occupies 3 visual rows total (top + tabs + status, no borders).
+	bodyH := m.H - 3
 	if bodyH < 4 {
 		bodyH = 4
 	}
@@ -81,6 +85,23 @@ func (m Model) routeView(bodyH int) string {
 		return m.Config.View(c, m.W, bodyH)
 	}
 	return ""
+}
+
+// tooSmallFrame renders a centered "terminal too small" message on canvas bg,
+// skipping all chrome. Triggered when width < 60 or height < 18.
+func tooSmallFrame(w, h int) string {
+	msg := theme.FgOn(theme.TextDim, theme.Bg).Render("terminal too small — resize ≥ 60×18")
+	msgW := lipgloss.Width(msg)
+	row := h / 2
+	col := (w - msgW) / 2
+	if col < 0 {
+		col = 0
+	}
+	lines := make([]string, h)
+	if row >= 0 && row < h {
+		lines[row] = ui.Blank(col) + msg
+	}
+	return paintFrame(strings.Join(lines, "\n"), w, h)
 }
 
 // paintFrame splits full into lines and pads each to exactly w columns. Chrome

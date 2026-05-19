@@ -15,6 +15,7 @@ import (
 	"autopus-tui/internal/app"
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
+	"autopus-tui/internal/ui"
 	"autopus-tui/internal/views/attach"
 	"autopus-tui/internal/views/config"
 	"autopus-tui/internal/views/ctx"
@@ -34,6 +35,7 @@ import (
 // "onboarding". When Attach is non-empty it overrides the active route.
 type Model struct {
 	W, H int
+	Bp   ui.BP
 	Now  time.Time
 	Spin int
 
@@ -78,7 +80,7 @@ func New() Model {
 
 // frameCtx returns the per-frame context every view's View receives.
 func (m Model) frameCtx() ctx.Ctx {
-	return ctx.Ctx{Now: m.Now, Spin: m.Spin}
+	return ctx.Ctx{Now: m.Now, Spin: m.Spin, Bp: m.Bp}
 }
 
 // activeKeyHints returns the status-bar hints for whatever view currently

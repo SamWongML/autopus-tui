@@ -50,6 +50,9 @@ func (m Model) Filtered() []data.PaletteItem {
 // (m, nil) for "enter" with no nav-emitting command leaves the root model to
 // close the overlay.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return m.handleMouse(mouse)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -91,8 +94,32 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleMouse expects box-relative coords (top-left of the bordered box = 0,0).
+// Single-click on an item row selects + activates it (same as ↵). Layout: row
+// 0 = top border, row 1 = header, row 2 = divider, rows 3+ = item rows.
+func (m Model) handleMouse(mouse tea.MouseMsg) (Model, tea.Cmd) {
+	if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	items := m.Filtered()
+	const maxItems = 12
+	if len(items) > maxItems {
+		items = items[:maxItems]
+	}
+	idx := mouse.Y - 3
+	if idx < 0 || idx >= len(items) {
+		return m, nil
+	}
+	m.Sel = idx
+	it := items[idx]
+	if it.K == "replay onboarding" {
+		return m, func() tea.Msg { return app.NavigateMsg{Overlay: "onboarding"} }
+	}
+	return m, func() tea.Msg { return app.NavigateMsg{Overlay: ""} }
+}
+
 // View renders the floating palette box. The root model overlays it centered.
-func (m Model) View(_ ctx.Ctx) string {
+func (m Model) View(c ctx.Ctx) string {
 	w := 70
 	items := m.Filtered()
 	maxItems := 12
@@ -102,7 +129,7 @@ func (m Model) View(_ ctx.Ctx) string {
 
 	header := theme.SAccent.Render(":") + " " +
 		theme.SText.Render(m.Query) +
-		theme.SAccent.Render("▌") +
+		theme.SAccent.Render(ui.CycleCaret(c.Spin)) +
 		strings.Repeat(" ", ui.Max(1, w-6-lipgloss.Width(m.Query)-15)) +
 		theme.SFaint.Render("esc to close")
 

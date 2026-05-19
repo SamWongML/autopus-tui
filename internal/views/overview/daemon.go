@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"autopus-tui/internal/app"
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
 	"autopus-tui/internal/ui"
@@ -25,8 +26,8 @@ func renderDaemonCard(w, h int) string {
 		{"poll interval", "3.0s"},
 		{"heartbeat", "15.0s"},
 		{"max concurrent", "20"},
-		{"workspaces root", "~/autopus_workspaces"},
-		{"config", "~/.autopus/profiles/default"},
+		{"workspaces root", app.WorkspacesRoot},
+		{"config", app.ConfigRoot + "/profiles/default"},
 	}
 	var b strings.Builder
 	b.WriteString(header + "\n")

@@ -19,7 +19,7 @@ const (
 	TextMute    = "#574f43"
 	Accent      = "#d97757"
 	AccentDim   = "#ab4929"
-	AccentFaint = "#2a1d18"
+	AccentFaint = "#2c2018"
 	OK          = "#8aa67a"
 	Warn        = "#d4a857"
 	Err         = "#c46b5e"

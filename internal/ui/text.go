@@ -151,6 +151,21 @@ func intDigits(n int) []int {
 	return out
 }
 
+// BlinkOn returns true on the "visible" half of a slow blink cycle driven by
+// the spinner frame counter. Each phase lasts 6 frames.
+func BlinkOn(spinFrame int) bool {
+	return (spinFrame/6)%2 == 0
+}
+
+// CycleCaret returns "▌" on the visible half of the blink and " " on the off
+// half. Use for text-input cursors that should pulse.
+func CycleCaret(spinFrame int) string {
+	if BlinkOn(spinFrame) {
+		return "▌"
+	}
+	return " "
+}
+
 func Max(a, b int) int {
 	if a > b {
 		return a

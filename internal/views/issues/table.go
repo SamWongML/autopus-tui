@@ -8,30 +8,38 @@ import (
 	"autopus-tui/internal/ui"
 )
 
+// colSpecs is the responsive column layout for the issues table.
+//
+// MinW: minimum cell width before the column is dropped.
+// Weight: share of leftover space (0 = fixed at MinW).
+// Priority: higher value = dropped first when width is tight.
+//
+// "marker" carries the selection bar and is pinned (Priority 0). "pri" is the
+// priority glyph; "priority" is the spelled-out word column.
+var colSpecs = []ui.Col{
+	{ID: "marker", MinW: 1, Priority: 0},
+	{ID: "pri", MinW: 2, Priority: 1},
+	{ID: "id", Header: "ID", MinW: 7, Priority: 3},
+	{ID: "title", Header: "TITLE", MinW: 20, Weight: 5, Priority: 1},
+	{ID: "status", Header: "STATUS", MinW: 11, Priority: 2},
+	{ID: "priority", Header: "PRIORITY", MinW: 8, Priority: 4},
+	{ID: "assignee", Header: "ASSIGNEE", MinW: 12, Priority: 6},
+	{ID: "upd", Header: "UPD", MinW: 4, Priority: 7, AlignR: true},
+}
+
 func renderTable(m Model, rows []data.Issue, w, h int) string {
-	const (
-		cPri  = 2
-		cID   = 8
-		cStat = 13
-		cPri2 = 8
-		cAssn = 18
-		cUpd  = 4
-	)
-	gaps := 6
-	cTitle := w - cPri - cID - cStat - cPri2 - cAssn - cUpd - gaps
-	if cTitle < 12 {
-		cTitle = 12
+	widths, visible := ui.LayoutCols(colSpecs, w)
+
+	header := make(map[string]string, len(visible))
+	for _, col := range visible {
+		header[col.ID] = theme.SFaint.Render(col.Header)
 	}
-	header := []string{
-		theme.SFaint.Render(ui.PadRight("", cPri)),
-		theme.SFaint.Render(ui.PadRight("ID", cID)),
-		theme.SFaint.Render(ui.PadRight("TITLE", cTitle)),
-		theme.SFaint.Render(ui.PadRight("STATUS", cStat)),
-		theme.SFaint.Render(ui.PadRight("PRIORITY", cPri2)),
-		theme.SFaint.Render(ui.PadRight("ASSIGNEE", cAssn)),
-		theme.SFaint.Render(ui.PadLeft("UPD", cUpd)),
+	headerRow := ui.RowFromCols(visible, widths, header, 1)
+
+	out := []string{
+		headerRow,
+		theme.SBorder.Render(strings.Repeat("─", w)),
 	}
-	out := []string{strings.Join(header, " "), theme.SBorder.Render(strings.Repeat("─", w))}
 
 	visibleH := h - 2
 	if visibleH < 1 {
@@ -58,18 +66,21 @@ func renderTable(m Model, rows []data.Issue, w, h int) string {
 		if sc == "" {
 			sc = theme.TextDim
 		}
-		line := marker + " " +
-			theme.Fg(pm.Color).Render(pm.Glyph) + " " +
-			theme.SDim.Render(ui.PadRight(it.ID, cID)) + " " +
-			theme.SText.Render(ui.PadRight(it.Title, cTitle)) + " " +
-			theme.Fg(sc).Render(ui.PadRight(it.Status, cStat)) + " " +
-			theme.Fg(pm.Color).Render(ui.PadRight(it.Priority, cPri2)) + " " +
-			theme.SFaint.Render(ui.PadRight(it.Assignee, cAssn)) + " " +
-			theme.SFaint.Render(ui.PadLeft(it.Updated, cUpd))
-		if selected {
-			line = theme.WithBg(line, theme.AccentFaint)
+		text := map[string]string{
+			"marker":   marker,
+			"pri":      theme.Fg(pm.Color).Render(pm.Glyph),
+			"id":       theme.SDim.Render(it.ID),
+			"title":    theme.SText.Render(it.Title),
+			"status":   theme.Fg(sc).Render(it.Status),
+			"priority": theme.Fg(pm.Color).Render(it.Priority),
+			"assignee": theme.SFaint.Render(it.Assignee),
+			"upd":      theme.SFaint.Render(it.Updated),
 		}
-		out = append(out, line)
+		row := ui.RowFromCols(visible, widths, text, 1)
+		if selected {
+			row = theme.WithBg(row, theme.AccentFaint)
+		}
+		out = append(out, row)
 	}
 	for len(out)-2 < visibleH {
 		out = append(out, "")

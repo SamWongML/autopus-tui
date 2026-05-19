@@ -29,11 +29,11 @@ func renderDetail(m Model, w, h int) string {
 		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(col)).Render(strings.ToUpper(r.Status)) +
 		strings.Repeat(" ", headPad) +
 		theme.SFaint.Render(lastUsed) + "\n\n")
-	b.WriteString(ui.KVRow("cli", r.CLI, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("version", r.Version, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("path", ui.Truncate(r.Path, w-12), theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("model", r.Model, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("concurrency",
+	b.WriteString(ui.KVRowDashed("cli", r.CLI, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("version", r.Version, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("path", ui.Truncate(r.Path, w-12), theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("model", r.Model, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("concurrency",
 		fmt.Sprintf("%d in-flight · cap %d", r.Inflight, r.Cap),
 		theme.Text, w-4) + "\n")
 	b.WriteString("\n" + ui.Bar(float64(r.Inflight)/float64(ui.Max(1, r.Cap))*100, ui.Min(w-4, 28), col) + "\n")
@@ -42,9 +42,9 @@ func renderDetail(m Model, w, h int) string {
 	if r.Success > 0.9 {
 		sc = theme.OK
 	}
-	b.WriteString(ui.KVRow("success", fmt.Sprintf("%d%%", int(r.Success*100)), sc, w-4) + "\n")
-	b.WriteString(ui.KVRow("tokens", r.Tokens24h, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("cost", r.Cost24h, theme.Accent, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("success", fmt.Sprintf("%d%%", int(r.Success*100)), sc, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("tokens", r.Tokens24h, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("cost", r.Cost24h, theme.Accent, w-4) + "\n")
 	b.WriteString("\n" + theme.SFaint.Render("ENV OVERRIDES") + "\n")
 	cli := strings.ToUpper(r.CLI)
 	b.WriteString(theme.SFaint.Render(fmt.Sprintf("AUTOPUS_%s_PATH=", cli)) +

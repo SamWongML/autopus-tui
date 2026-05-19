@@ -28,11 +28,11 @@ func renderDetail(m Model, rows []data.Issue, c ctx.Ctx, w, h int) string {
 	}
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.Text)).Render(it.Title) + "\n\n")
-	b.WriteString(ui.KVRow("status", it.Status, sc, w-4) + "\n")
-	b.WriteString(ui.KVRow("priority", it.Priority, theme.Priorities[it.Priority].Color, w-4) + "\n")
-	b.WriteString(ui.KVRow("assignee", it.Assignee, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("workspace", it.Workspace, theme.Text, w-4) + "\n")
-	b.WriteString(ui.KVRow("updated", it.Updated+" ago", theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("status", it.Status, sc, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("priority", it.Priority, theme.Priorities[it.Priority].Color, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("assignee", it.Assignee, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("workspace", it.Workspace, theme.Text, w-4) + "\n")
+	b.WriteString(ui.KVRowDashed("updated", it.Updated+" ago", theme.Text, w-4) + "\n")
 	b.WriteString("\n" + theme.SFaint.Render("RECENT RUNS") + "\n")
 	runRows := []struct {
 		state, id, sub string

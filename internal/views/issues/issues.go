@@ -18,6 +18,7 @@ type Model struct {
 	Sel      int
 	Filter   string
 	PendingG bool
+	LastW    int // last body width — used by mouse handler to derive layout
 }
 
 // New returns a model with the "active" filter selected.
@@ -46,6 +47,9 @@ func (m Model) Filtered() []data.Issue {
 
 // Update handles filter cycling, navigation, and "gg"/"G".
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return m.handleMouse(mouse)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -86,14 +90,36 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the issues view: filter strip + table on left, detail on right.
+// View renders the issues view. At BPxs/BPsm the detail stacks under the
+// table; at BPmd+ it sits on the right.
 func (m Model) View(c ctx.Ctx, w, h int) string {
 	gap := 1
+	rows := m.Filtered()
+	stacked := ui.For(w) <= ui.BPsm
+
+	if stacked {
+		detailH := ui.Max(8, h/3)
+		topH := h - detailH
+		if topH < 8 {
+			topH = 8
+			detailH = ui.Max(4, h-topH)
+		}
+		filter := renderFilterStrip(m, w)
+		tableH := topH - 2
+		if tableH < 6 {
+			tableH = 6
+		}
+		tablePanel := ui.Panel(fmt.Sprintf("issues · %d", len(rows)), "",
+			renderTable(m, rows, w-4, tableH-4), w, tableH, false, false)
+		topCol := filter + "\n" + tablePanel
+		detail := renderDetail(m, rows, c, w, detailH)
+		return lipgloss.JoinVertical(lipgloss.Left, topCol, detail)
+	}
+
 	leftW := (w - gap) * 64 / 100
 	rightW := w - gap - leftW
 
 	filter := renderFilterStrip(m, leftW)
-	rows := m.Filtered()
 	tableH := h - 2
 	if tableH < 6 {
 		tableH = 6
@@ -112,6 +138,40 @@ func (m Model) KeyHints() [][2]string {
 	return [][2]string{
 		{"j k", "row"}, {"[ ]", "filter"}, {"↵", "open"}, {"n", "new"}, {"a", "assign"}, {"?", "help"},
 	}
+}
+
+// handleMouse maps a body-relative click to a filter chip or a table row.
+// Layout: row 0 = filter strip; rows 6+ in the left column = table data rows.
+func (m Model) handleMouse(mouse tea.MouseMsg) (Model, tea.Cmd) {
+	if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	w := m.LastW
+	if w <= 0 {
+		return m, nil
+	}
+	leftW := w
+	if ui.For(w) > ui.BPsm {
+		leftW = (w - 1) * 64 / 100
+	}
+	if mouse.X >= leftW {
+		return m, nil
+	}
+	if mouse.Y == 0 {
+		hits := filterHitBoxes()
+		if id := ui.Hits(hits, mouse.X); id != "" {
+			m.Filter = id
+			m.Sel = 0
+		}
+		return m, nil
+	}
+	rowIdx := mouse.Y - 6
+	rows := m.Filtered()
+	if rowIdx < 0 || rowIdx >= len(rows) {
+		return m, nil
+	}
+	m.Sel = rowIdx
+	return m, nil
 }
 
 func indexOf(xs []string, v string) int {

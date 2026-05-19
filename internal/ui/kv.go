@@ -16,6 +16,13 @@ func KVRow(k, v, vc string, w int) string {
 	return JoinRight(left, right, w) + "\n" + Dashed(w)
 }
 
+// KVRowDashed is the explicitly-named, dashed-separator form of KVRow. Use it
+// in detail panels where the dashed separator below each row is intentional
+// (issues/runtimes/workspaces/attach details).
+func KVRowDashed(k, v, vc string, w int) string {
+	return KVRow(k, v, vc, w)
+}
+
 // KVRowFlat is KVRow without the trailing dashed line. Used when the caller
 // supplies its own divider or packs rows tightly.
 func KVRowFlat(k, v, vc string, w int) string {

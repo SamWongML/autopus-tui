@@ -10,6 +10,21 @@ import (
 	"autopus-tui/internal/ui"
 )
 
+// filterHitBoxes returns the click hit-boxes for the issue filter chips,
+// mirroring the widths used in renderFilterStrip. Chips are padded(0,1) with
+// a 1-cell border, so each chip width = len(label) + 4. They render with no
+// separator (JoinHorizontal), starting at x=0.
+func filterHitBoxes() []ui.HitBox {
+	hits := make([]ui.HitBox, 0, len(data.IssueFilters))
+	x := 0
+	for _, f := range data.IssueFilters {
+		chipW := lipgloss.Width(f) + 4
+		hits = append(hits, ui.HitBox{X1: x, X2: x + chipW - 1, ID: f})
+		x += chipW
+	}
+	return hits
+}
+
 func renderFilterStrip(m Model, w int) string {
 	var parts []string
 	for _, f := range data.IssueFilters {
