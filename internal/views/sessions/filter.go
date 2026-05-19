@@ -8,6 +8,7 @@ import (
 
 	"autopus-tui/internal/data"
 	"autopus-tui/internal/theme"
+	"autopus-tui/internal/ui"
 )
 
 func renderFilterStrip(m Model, w int) string {
@@ -76,4 +77,32 @@ func renderFilterStrip(m Model, w int) string {
 		pillsLine = pillsLine + "  " + hint
 	}
 	return pillsLine
+}
+
+// filterHitBoxes returns the click hit-boxes for the filter chips, mirroring
+// the widths used in renderFilterStrip. Chips are laid out left-to-right with
+// no separator (lipgloss.JoinHorizontal). Each chip is (border + padding +
+// glyph + space + label + count + padding + border).
+func filterHitBoxes() []ui.HitBox {
+	counts := map[string]int{"all": len(data.Sessions)}
+	for _, s := range data.Sessions {
+		counts[s.State]++
+	}
+	hits := make([]ui.HitBox, 0, len(data.SessionFilters))
+	x := 0
+	for _, f := range data.SessionFilters {
+		var label, glyph string
+		if f == "all" {
+			label = "all"
+		} else {
+			meta := theme.State(f)
+			label = meta.Label
+			glyph = meta.Glyph
+		}
+		inner := glyph + " " + label + " " + fmt.Sprintf("%d", counts[f])
+		chipW := lipgloss.Width(inner) + 4
+		hits = append(hits, ui.HitBox{X1: x, X2: x + chipW - 1, ID: f})
+		x += chipW
+	}
+	return hits
 }

@@ -15,6 +15,7 @@ import (
 type Model struct {
 	Sel      int
 	PendingG bool // "gg" → top
+	LastW    int  // last body width — used by mouse handler to derive layout
 }
 
 // New returns a zero-value model (first runtime selected).
@@ -22,6 +23,9 @@ func New() Model { return Model{} }
 
 // Update handles row navigation and "gg"/"G" jump-to-top/bottom.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return m.handleMouse(mouse)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -86,4 +90,30 @@ func (m Model) KeyHints() [][2]string {
 	return [][2]string{
 		{"j k", "row"}, {"↵", "config"}, {"t", "test"}, {"d", "disable"}, {"↺", "rescan"}, {"?", "help"},
 	}
+}
+
+// handleMouse maps a body-relative click to a runtime row. Layout: panel only,
+// data rows start at body Y=5 (top border + title + divider + table header +
+// separator). Side-by-side at BPmd+: left column is 64% of (w-1).
+func (m Model) handleMouse(mouse tea.MouseMsg) (Model, tea.Cmd) {
+	if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	w := m.LastW
+	if w <= 0 {
+		return m, nil
+	}
+	leftW := w
+	if ui.For(w) > ui.BPsm {
+		leftW = (w - 1) * 64 / 100
+	}
+	if mouse.X >= leftW {
+		return m, nil
+	}
+	rowIdx := mouse.Y - 5
+	if rowIdx < 0 || rowIdx >= len(data.Runtimes) {
+		return m, nil
+	}
+	m.Sel = rowIdx
+	return m, nil
 }

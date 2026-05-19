@@ -24,6 +24,7 @@ type Model struct {
 	Query     string
 	Searching bool
 	PendingG  bool
+	LastW     int // last body width — used by mouse handler to derive layout
 }
 
 // New returns a fresh model with Filter="all".
@@ -51,6 +52,9 @@ func (m Model) Filtered() []data.Session {
 
 // Update handles search input, filter cycling, navigation, and ↵ (attach).
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return m.handleMouse(mouse)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -195,6 +199,42 @@ func (m Model) KeyHints() [][2]string {
 	return [][2]string{
 		{"j k", "row"}, {"[ ]", "filter"}, {"*", "needs-input"}, {"↵", "attach"}, {"/", "search"}, {"?", "help"},
 	}
+}
+
+// handleMouse maps a body-relative click into a filter change, a row select +
+// attach, or a no-op. Row 0 = filter strip; rows 6+ in the left column = table
+// data rows (panel top + title + divider + table header + separator = 5 rows).
+func (m Model) handleMouse(mouse tea.MouseMsg) (Model, tea.Cmd) {
+	if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	w := m.LastW
+	if w <= 0 {
+		return m, nil
+	}
+	leftW := w
+	if ui.For(w) > ui.BPsm {
+		leftW = (w - 1) * 62 / 100
+	}
+	if mouse.X >= leftW {
+		return m, nil
+	}
+	if mouse.Y == 0 {
+		hits := filterHitBoxes()
+		if id := ui.Hits(hits, mouse.X); id != "" {
+			m.Filter = id
+			m.Sel = 0
+		}
+		return m, nil
+	}
+	rowIdx := mouse.Y - 6
+	rows := m.Filtered()
+	if rowIdx < 0 || rowIdx >= len(rows) {
+		return m, nil
+	}
+	m.Sel = rowIdx
+	id := rows[rowIdx].ID
+	return m, func() tea.Msg { return app.NavigateMsg{Attach: id} }
 }
 
 func indexOf(xs []string, v string) int {

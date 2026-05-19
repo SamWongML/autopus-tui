@@ -24,7 +24,7 @@ func (m Model) View() string {
 	}
 
 	top := chrome.TopBar(m.W, m.Now)
-	tab := chrome.TabBar(m.W, m.Route, m.Attach, m.Overlay == "help")
+	tab, _ := chrome.TabBar(m.W, m.Route, m.Attach, m.Overlay == "help")
 	stat := chrome.StatusBar(m.W, m.activeKeyHints())
 
 	// Chrome occupies 3 visual rows total (top + tabs + status, no borders).

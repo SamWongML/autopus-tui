@@ -4,6 +4,8 @@
 // stable, dependency-free types layer without coupling to a data fetcher.
 package data
 
+import "time"
+
 // Session is a running or completed agent run on a single issue.
 type Session struct {
 	ID        string
@@ -156,4 +158,16 @@ var SessionTranscript = []TranscriptEntry{
 	{Kind: "tool", Time: "16:03:18", Tool: "Bash", Arg: "go vet ./..."},
 	{Kind: "thinking", Time: "16:03:24", Body: "Cleaner to refactor the dispatcher first — but that's a wider change. Shipping the shim first means we get observability now and can migrate per-runtime."},
 	{Kind: "ask", Time: "16:39:10", Body: "Two valid approaches surfaced. Should I:\n  (a) refactor the dispatcher first, then teardown — cleaner, ~600 LOC.\n  (b) add the context.CancelCause shim first and migrate per-runtime — ships faster, less risk."},
+}
+
+// AppendReply tacks a user reply onto the transcript. The id arg is unused
+// today (one global transcript) but is required for the eventual per-session
+// store. Time is local wall-clock at append.
+func AppendReply(id, text string) {
+	_ = id
+	SessionTranscript = append(SessionTranscript, TranscriptEntry{
+		Kind: "user",
+		Time: time.Now().Format("15:04:05"),
+		Body: text,
+	})
 }

@@ -29,33 +29,54 @@ type Model struct {
 // New returns a fresh model.
 func New() Model { return Model{} }
 
-// Update handles attach-local keys.
+// Update handles attach-local keys. Single-char keys not bound to an action
+// append to the reply buffer; enter flushes the buffer to the transcript.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
-	switch k.String() {
+	s := k.String()
+	switch s {
 	case "esc", "left":
 		m.ID = ""
 		m.Reply = ""
 		return m, func() tea.Msg { return app.NavigateMsg{Attach: ""} }
 	case "j", "down":
 		m.Scroll++
+		return m, nil
 	case "k", "up":
 		if m.Scroll > 0 {
 			m.Scroll--
 		}
+		return m, nil
 	case "g":
 		m.Scroll = 0
+		return m, nil
 	case "G":
 		m.Scroll = 9999
+		return m, nil
 	case "r":
 		m.PeekOpen = !m.PeekOpen
+		return m, nil
+	case "enter":
+		if m.Reply != "" {
+			data.AppendReply(m.ID, m.Reply)
+			m.Reply = ""
+			m.Scroll = 9999
+		}
+		return m, nil
 	case "backspace":
 		if len(m.Reply) > 0 {
 			m.Reply = m.Reply[:len(m.Reply)-1]
 		}
+		return m, nil
+	case "space":
+		m.Reply += " "
+		return m, nil
+	}
+	if len(s) == 1 {
+		m.Reply += s
 	}
 	return m, nil
 }

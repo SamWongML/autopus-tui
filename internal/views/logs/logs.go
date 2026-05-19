@@ -23,6 +23,9 @@ func New() Model {
 
 // Update handles keys local to the logs view.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return m.handleMouse(mouse)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -58,6 +61,28 @@ func (m Model) KeyHints() [][2]string {
 	return [][2]string{
 		{"f", "follow"}, {"[ ]", "level"}, {"c", "clear"}, {"s", "save"}, {"?", "help"},
 	}
+}
+
+// handleMouse maps a body-relative click on the filter strip (Y=0) to a level
+// chip or the follow toggle. Rows below the strip aren't selectable.
+func (m Model) handleMouse(mouse tea.MouseMsg) (Model, tea.Cmd) {
+	if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	if mouse.Y != 0 {
+		return m, nil
+	}
+	hits := filterHitBoxes()
+	id := ui.Hits(hits, mouse.X)
+	if id == "" {
+		return m, nil
+	}
+	if id == "__follow" {
+		m.Follow = !m.Follow
+		return m, nil
+	}
+	m.Level = id
+	return m, nil
 }
 
 func filtered(m Model) []data.LogLine {
