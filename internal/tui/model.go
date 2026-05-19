@@ -80,7 +80,7 @@ func New() Model {
 
 // frameCtx returns the per-frame context every view's View receives.
 func (m Model) frameCtx() ctx.Ctx {
-	return ctx.Ctx{Now: m.Now, Spin: m.Spin}
+	return ctx.Ctx{Now: m.Now, Spin: m.Spin, Bp: m.Bp}
 }
 
 // activeKeyHints returns the status-bar hints for whatever view currently

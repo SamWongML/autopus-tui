@@ -3,10 +3,15 @@
 // onto every view function signature.
 package ctx
 
-import "time"
+import (
+	"time"
+
+	"autopus-tui/internal/ui"
+)
 
 // Ctx is the per-frame render context passed to view View methods.
 type Ctx struct {
 	Now  time.Time
 	Spin int
+	Bp   ui.BP
 }
