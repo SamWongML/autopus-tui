@@ -119,7 +119,7 @@ func (m Model) handleMouse(mouse tea.MouseMsg) (Model, tea.Cmd) {
 }
 
 // View renders the floating palette box. The root model overlays it centered.
-func (m Model) View(_ ctx.Ctx) string {
+func (m Model) View(c ctx.Ctx) string {
 	w := 70
 	items := m.Filtered()
 	maxItems := 12
@@ -129,7 +129,7 @@ func (m Model) View(_ ctx.Ctx) string {
 
 	header := theme.SAccent.Render(":") + " " +
 		theme.SText.Render(m.Query) +
-		theme.SAccent.Render("▌") +
+		theme.SAccent.Render(ui.CycleCaret(c.Spin)) +
 		strings.Repeat(" ", ui.Max(1, w-6-lipgloss.Width(m.Query)-15)) +
 		theme.SFaint.Render("esc to close")
 

@@ -28,7 +28,7 @@ func filterHitBoxes() []ui.HitBox {
 	return hits
 }
 
-func renderFilterStrip(m Model, w int) string {
+func renderFilterStrip(m Model, spin, w int) string {
 	_ = w
 	var parts []string
 	for _, l := range data.LogLevelFilters {
@@ -52,7 +52,11 @@ func renderFilterStrip(m Model, w int) string {
 	followText := "○ paused"
 	if m.Follow {
 		followCol, followBorder = theme.Accent, theme.AccentDim
-		followText = "● following"
+		dot := "●"
+		if !ui.BlinkOn(spin) {
+			dot = "○"
+		}
+		followText = dot + " following"
 	}
 	follow := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(followCol)).

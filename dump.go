@@ -8,9 +8,14 @@
 //   - AUTOPUS_DUMP_WIDTH   = <int>                        (default: 160)
 //   - AUTOPUS_DUMP_HEIGHT  = <int>                        (default: 44)
 //   - AUTOPUS_DUMP_ONLY    = comma-sep names (filters)    (default: all)
+//   - AUTOPUS_DUMP_WIDTHS  = comma-sep ints (matrix)      (default: unset)
 //
 // Names recognized by AUTOPUS_DUMP_ONLY: overview, sessions, issues, runtimes,
 // workspaces, logs, config, attach, help, palette, onboarding.
+//
+// When AUTOPUS_DUMP_WIDTHS is set, the dump iterates each width (banner per
+// width) instead of using AUTOPUS_DUMP_WIDTH. Useful for the responsive
+// verification matrix at 80/100/140/180 cols.
 package main
 
 import (
@@ -37,9 +42,12 @@ type dumpFrame struct {
 
 func runDump(out io.Writer) {
 	setProfile(os.Getenv("AUTOPUS_DUMP_PROFILE"))
-	w := envInt("AUTOPUS_DUMP_WIDTH", 160)
 	h := envInt("AUTOPUS_DUMP_HEIGHT", 44)
 	only := parseOnly(os.Getenv("AUTOPUS_DUMP_ONLY"))
+	widths := parseWidths(os.Getenv("AUTOPUS_DUMP_WIDTHS"))
+	if len(widths) == 0 {
+		widths = []int{envInt("AUTOPUS_DUMP_WIDTH", 160)}
+	}
 
 	frames := []dumpFrame{
 		// One frame per top-level route.
@@ -65,15 +73,25 @@ func runDump(out io.Writer) {
 	}
 
 	first := true
-	for _, f := range frames {
-		if len(only) > 0 && !only[f.name] {
-			continue
+	multi := len(widths) > 1
+	for _, w := range widths {
+		if multi {
+			if !first {
+				fmt.Fprintln(out)
+			}
+			fmt.Fprintf(out, "=== width %d ===\n", w)
+			first = false
 		}
-		if !first {
-			fmt.Fprintln(out)
+		for _, f := range frames {
+			if len(only) > 0 && !only[f.name] {
+				continue
+			}
+			if !first {
+				fmt.Fprintln(out)
+			}
+			first = false
+			dumpFrameOne(out, f, w, h)
 		}
-		first = false
-		dumpFrameOne(out, f, w, h)
 	}
 }
 
@@ -108,6 +126,23 @@ func envInt(k string, def int) int {
 		}
 	}
 	return def
+}
+
+func parseWidths(v string) []int {
+	if v == "" {
+		return nil
+	}
+	var out []int
+	for _, p := range strings.Split(v, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if n, err := strconv.Atoi(p); err == nil && n > 0 {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func parseOnly(v string) map[string]bool {

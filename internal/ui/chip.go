@@ -28,6 +28,18 @@ func StatePill(state string, spinFrame int) string {
 		Padding(0, 1).Render(g + " " + lbl)
 }
 
+// StatePillInline renders a 1-row state chip: glyph + space + label on the
+// accent-faint background, no border. Used in headers where a 3-row outlined
+// pill is too tall.
+func StatePillInline(state string, spinFrame int) string {
+	m := theme.State(state)
+	g := Glyph(state, spinFrame)
+	lbl := theme.Fg(m.Color).Render(strings.ToUpper(m.Label))
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.AccentFaint)).
+		Padding(0, 1).Render(g + " " + lbl)
+}
+
 // Dot renders a colored bullet using the • char.
 func Dot(color string) string {
 	return theme.Fg(color).Render("●")

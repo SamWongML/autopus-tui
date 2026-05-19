@@ -36,7 +36,10 @@ func TopBar(w int, now time.Time) string {
 	sep := theme.FgOn(theme.TextMute, theme.Bg).Render("│")
 	bullet := theme.FgOn(theme.TextFaint, theme.Bg).Render("·")
 
-	brand := theme.FgOn(theme.Accent, theme.Bg).Render("◆") + " " +
+	mark := theme.FgOn(theme.BorderHi, theme.Bg).Render("[") +
+		theme.FgOn(theme.Accent, theme.Bg).Render("◆") +
+		theme.FgOn(theme.BorderHi, theme.Bg).Render("]")
+	brand := mark + " " +
 		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.Text)).Background(lipgloss.Color(theme.Bg)).Render(app.Name) +
 		" " + theme.FgOn(theme.TextFaint, theme.Bg).Render("· "+app.Tagline)
 

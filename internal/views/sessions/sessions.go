@@ -164,7 +164,7 @@ func (m Model) View(c ctx.Ctx, w, h int) string {
 			topH = 8
 			peekH = ui.Max(4, h-topH)
 		}
-		filterLine := renderFilterStrip(m, w)
+		filterLine := renderFilterStrip(m, c.Spin, w)
 		tableH := topH - 2
 		if tableH < 6 {
 			tableH = 6
@@ -180,7 +180,7 @@ func (m Model) View(c ctx.Ctx, w, h int) string {
 	leftW := usable * 62 / 100
 	rightW := usable - leftW
 
-	filterLine := renderFilterStrip(m, leftW)
+	filterLine := renderFilterStrip(m, c.Spin, leftW)
 	tableH := h - 2
 	if tableH < 6 {
 		tableH = 6

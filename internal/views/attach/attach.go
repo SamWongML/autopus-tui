@@ -5,7 +5,6 @@ package attach
 
 import (
 	"fmt"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -108,12 +107,7 @@ func (m Model) View(c ctx.Ctx, w, h int) string {
 		}
 	}
 
-	pill := ui.StatePill(s.State, c.Spin)
-	pillLines := strings.Split(pill, "\n")
-	pillLine := pill
-	if len(pillLines) >= 2 {
-		pillLine = pillLines[1]
-	}
+	pillLine := ui.StatePillInline(s.State, c.Spin)
 
 	headerRight := theme.SFaint.Render(fmt.Sprintf("%s · elapsed %s", s.ID, s.Elapsed))
 	prefix := ui.KeyChip("esc", "detach", true) + "  " +

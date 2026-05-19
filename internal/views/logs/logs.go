@@ -44,8 +44,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 // View renders the logs view as a strip + bordered body.
-func (m Model) View(_ ctx.Ctx, w, h int) string {
-	strip := renderFilterStrip(m, w)
+func (m Model) View(c ctx.Ctx, w, h int) string {
+	strip := renderFilterStrip(m, c.Spin, w)
 	rows := filtered(m)
 	panelH := h - 2
 	if panelH < 6 {

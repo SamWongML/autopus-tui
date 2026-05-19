@@ -11,7 +11,7 @@ import (
 	"autopus-tui/internal/ui"
 )
 
-func renderFilterStrip(m Model, w int) string {
+func renderFilterStrip(m Model, spin, w int) string {
 	var parts []string
 	counts := map[string]int{"all": len(data.Sessions)}
 	for _, s := range data.Sessions {
@@ -52,7 +52,7 @@ func renderFilterStrip(m Model, w int) string {
 	if m.Searching {
 		searchBorder = theme.AccentDim
 		slashCol = theme.Accent
-		caret = theme.SAccent.Render("▌")
+		caret = theme.SAccent.Render(ui.CycleCaret(spin))
 		if m.Query != "" {
 			queryStr = theme.SText.Render(m.Query)
 		}

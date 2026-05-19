@@ -45,17 +45,17 @@ func renderRunMeta(s *data.Session, w int) string {
 	}
 	var b strings.Builder
 	for _, r := range rows {
-		b.WriteString(ui.KVRow(r[0], r[1], r[2], w) + "\n")
+		b.WriteString(ui.KVRowDashed(r[0], r[1], r[2], w) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
 func renderBudget(s *data.Session, w int) string {
 	var b strings.Builder
-	b.WriteString(ui.KVRow("in", ui.Commafy(s.TokensIn), theme.Text, w) + "\n")
-	b.WriteString(ui.KVRow("out", ui.Commafy(s.TokensOut), theme.Text, w) + "\n")
-	b.WriteString(ui.KVRow("cost", s.Cost, theme.Accent, w) + "\n")
-	b.WriteString(ui.KVRow("cap", "$5.00", theme.Text, w) + "\n")
+	b.WriteString(ui.KVRowDashed("in", ui.Commafy(s.TokensIn), theme.Text, w) + "\n")
+	b.WriteString(ui.KVRowDashed("out", ui.Commafy(s.TokensOut), theme.Text, w) + "\n")
+	b.WriteString(ui.KVRowDashed("cost", s.Cost, theme.Accent, w) + "\n")
+	b.WriteString(ui.KVRowDashed("cap", "$5.00", theme.Text, w) + "\n")
 	pct := 0.0
 	fmt.Sscanf(s.Cost, "$%f", &pct)
 	pct = pct / 5.0 * 100
